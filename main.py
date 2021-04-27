@@ -35,22 +35,24 @@ def reservation_cancel(upbit):
         print("모든 예약 취소")
     else :
         print("예약 없음")
-def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
-    # mdf = buy_df
-    benefit = max(benefit, 0.015)
-    cutoff = min(cutoff, -0.01)
+def execute_sell_schedule(upbit, sell_df, cutoff, get_benefit):
+    # mdf = sell_df
+    # sell_df = new_df
+
+    benefit_min = get_benefit.get('benefit_min')
+    benefit_max = get_benefit.get('benefit_max')
     my_coin = pd.DataFrame(upbit.get_balances())
     my_coin['coin_name'] = my_coin.unit_currency +'-'+my_coin.currency
     my_coin['buy_price'] = pd.to_numeric(my_coin.balance, errors='coerce') * pd.to_numeric(my_coin.avg_buy_price, errors='coerce')
     KRW = float(my_coin[0:1].balance)
 
     my_coin = my_coin[pd.to_numeric(my_coin.avg_buy_price) > 0]
-    ticker_predict = sell_df.coin_name
-    ticker_sell = my_coin.coin_name
+    ticker_predict = list(sell_df.coin_name)
+    ticker_sell = list(my_coin.coin_name)
     status_list = []
-    for coin_name in list(ticker_sell):
+    for coin_name in ticker_sell:
+        coin_name = ticker_sell[0]
         df = my_coin[my_coin.coin_name == coin_name]
-        coin_name = list(ticker_sell)[0]
         avg_price = float(df.avg_buy_price)
         current_price = pyupbit.get_current_price(coin_name)
         ratio = (current_price - avg_price) / avg_price
@@ -58,48 +60,55 @@ def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
         df.reset_index(drop=True, inplace=True)
         balance = float(df.balance[0])
         expiration = False
-        if not coin_name in ticker_predict: # predict sell ...
-            #coin_name = my_coin.coin_name[1]
-            time.sleep(0.1)
-            result = []
-        else:
+        status_list = []
+
+        if coin_name in ticker_predict: # predict sell ...
             df_sell = sell_df[sell_df.coin_name == coin_name]
             currency_time = datetime.now()
             start_date_ask = np.min(df_sell.start_date_ask)
             end_date_ask = np.max(df_sell.end_date_ask)
-            max_price = np.mean(df_sell.sell_price_min) - 1.96 * np.sqrt(
-                np.std(df_sell.sell_price_min) / len(df_sell.sell_price_min))
+            max_price = np.mean(df_sell.sell_price_min) - 1.96 * np.sqrt(np.std(df_sell.sell_price_min) / len(df_sell.sell_price_min))
             updown_levels = np.mean(df_sell.influence_m)
             volume_levels = np.mean(df_sell.influence_v)
+            weight = np.sum(updown_levels,volume_levels)
             if currency_time > end_date_ask:
                  expiration = True
-        try:
-            if bool(ratio < (-cutoff)) | bool(expiration):  # 손절 / period end
-                print("코인 손절 요청: " + coin_name)
-                price = current_price
-            elif ratio > 0.001:
-                print("코인 익절 요청: " + coin_name)
-                if ratio > benefit:
-                    min_price = current_price
+
+            try:
+                if bool(ratio < (-cutoff)) | bool(expiration):  # 손절 / period end
+                    print("코인 손절 요청: " + coin_name)
+                    price = current_price
+                elif ratio > 0.001:
+                    print("코인 익절 요청: " + coin_name)
+                    if ratio > benefit_max:
+                        price = current_price * (1 + benefit_max)
+                    elif benefit_max >= ratio >=benefit_min :
+                        price =  current_price * (1 + benefit_min)
+                    else:
+                        price = min(avg_price * (1 + benefit_max), current_price * (1 + weight/10))
                 else:
-                    min_price = max(avg_price * (1 + benefit), current_price)
-                ho = list(hoga.get('ask_price')[hoga.get('ask_price') >= min_price])
+                    price = (avg_price + current_price)/2
+                    ho = list(hoga.get('ask_price')[hoga.get('ask_price') >= price])
+
                 if len(ho) > 0:
-                    price = ho[0]
-            else:
-                min_price = min(avg_price * (1 + benefit), current_price)
-                ho = list(hoga.get('ask_price')[hoga.get('ask_price') >= min_price])
-                if len(ho) > 0:
-                    price = ho[0]
-            res = upbit.sell_limit_order(coin_name, price, balance)
-            time.sleep(0.1)
-            if len(res) > 2:
-                print(coin_name + "을 " + str(ho) + "에" + " 매도요청합니다.")
-                save_uuid(res)
-                status = 'res_bid'
-                status_list.append(status)
-        except:
-            print('매도 error: ' + coin_name)
+                    if len(ho) >= 3:
+                        price = ho[0:3]
+                    else:
+                        price = ho
+                else:
+                    min_price = min(avg_price, current_price)
+                    ho = list(hoga.get('ask_price')[hoga.get('ask_price') >= min_price])
+
+                for p in price:
+                    res = upbit.sell_limit_order(coin_name, p, balance)
+                    time.sleep(0.1)
+                    if len(res) > 2:
+                        print(coin_name + "을 " + str(ho) + "에" + " 매도요청합니다.")
+                        save_uuid(res)
+                        status = 'res_bid'
+                        status_list.append(status)
+            except:
+                print('매도 error: ' + coin_name)
     sell_df.reset_index(drop=True, inplace=True)
     status_df = pd.DataFrame(status_list, columns=['status'], index=[0])
     result = pd.concat([status_df, sell_df], axis=1)
@@ -128,12 +137,14 @@ def execute_buy_schedule(upbit, mdf, investment):
             updown_levels = np.mean(df_buy.influence_m)
             volume_levels = np.mean(df_buy.influence_v)
             levels = updown_levels + volume_levels
+            weight = 1 + levels/8
             # 구매 가격 결정하기
             try:
                 money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
                 time.sleep(0.1)
             except:
                 money = investment
+
             if money < 5000:
                 pass
             else:
@@ -404,7 +415,7 @@ def save_uuid(dict):
     df = df.dropna(axis=0)
 
     dt_now = datetime.now()
-    now = dt_now.strftime('%Y%m%d%H%M%S')
+    now = dt_now.strftime('%Y%m%d')
     name = 'reservation_'+now+'.json'
     directory = 'reservation'
     json_file = directory+'/'+name
@@ -490,12 +501,12 @@ def merge_df(df):
 
 def generate_benefit_cutoff(new_df):
     count = np.sum(new_df.price_changed_ratio > 0)
-    benefit = np.mean(new_df.price_changed_ratio>0)
-    cutoff = np.mean(new_df.price_changed_ratio)
-    result = {'up_count': count, 'benefit':benefit, 'cutoff':cutoff}
+    benefit_min = np.mean(new_df.price_changed_ratio > 0) - 1.96 * np.std(new_df.price_changed_ratio > 0) / count
+    benefit_max = np.mean(new_df.price_changed_ratio > 0) + 1.96 * np.std(new_df.price_changed_ratio > 0) / count
+    result = {'up_count': count, 'benefit_min': benefit_min, 'benefit_max': benefit_max}
     return result
 
-def coin_trade(upbit, interval, total_updown, investment):
+def coin_trade(upbit, interval, total_updown, investment, cutoff):
     tickers = pyupbit.get_tickers(fiat="KRW")
     try:
         new_df = load_df()
@@ -505,16 +516,17 @@ def coin_trade(upbit, interval, total_updown, investment):
         # 저장된 기존 df 를 불러오고 현재 생성된 df를 합친다.
     print("현황 분석 완료.")
 
-    a = generate_benefit_cutoff(new_df)
-    benefit = a.get('benefit')
-    cutoff = a.get('cutoff')
-    result = a.get('up_count')
-    print("총 코인 수: "+str(len(new_df))+"개, 현재 상승 코인수: "+str(result)+"개, 예상 수익률 : "+str(round(benefit,2)*100)+"%, 예상 손절 : "+str(round(cutoff,2)*100)+"%")
+    get_benefit = generate_benefit_cutoff(new_df)
+    benefit_min = get_benefit.get('benefit_min')
+    benefit_max = get_benefit.get('benefit_max')
+    result = get_benefit.get('up_count')
+    print("총 코인 수: "+str(len(new_df))+"개, 현재 상승 코인수: "+str(result)+"개, 예상 수익률 : "+str(round(benefit_min,2)*100)+"% ~ "+str(round(benefit_max,2)*100)+"%")
     buy_df = new_df[new_df.check_buy]
     buy_df.reset_index(drop=True, inplace=True)
     buy_df = execute_buy_schedule(upbit, buy_df, investment)
     sell_df = new_df
-    sell_df = execute_sell_schedule(upbit, sell_df, cutoff, benefit)
+
+    sell_df = execute_sell_schedule(upbit, sell_df, cutoff, get_benefit)
 
     print("schedual generate 시작")
     st = time.time()
@@ -527,6 +539,7 @@ def coin_trade(upbit, interval, total_updown, investment):
     coin_validation(upbit, tickers, interval)
 
     return result
+
 
 # input 1번 불러오면 되는 것들
 if __name__ == '__main__':
@@ -543,7 +556,7 @@ if __name__ == '__main__':
     total_updown = []
     while True:
         try:
-            res = coin_trade(upbit, interval, total_updown, investment)
+            res = coin_trade(upbit, interval, total_updown, investment, cutoff)
             total_updown.append(res)
         except:
             pass
