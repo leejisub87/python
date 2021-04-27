@@ -562,3 +562,23 @@ if __name__ == '__main__':
             pass
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
+
+# input 1번 불러오면 되는 것들
+if __name__ == '__main__':
+    intervals = ["month", "week", "day", "minute240", "minute60", "minute30", "minute10", 'minute5']
+    #access_key = '13OWmDwccuUleOzGq5Axg3PmfW1KoFO5igDyuSYM'
+    access_key = '8o1RiU3sdJDga1jPx34ovI2f5agvPwIw9LAQzNgK'
+    #secret_key = 'DN2uMoPwDGF7sa3lbaR4OYGAFg9UNom8erlofCox'
+    secret_key = 'JUMqnCfnmWxjAqHC04cvqf4bs6JuwbBOHJv58I1y'
+
+    upbit = pyupbit.Upbit(access_key, secret_key)
+    interval = intervals[7]
+    investment = 10000
+    cutoff = 0.015
+    total_updown = []
+    while True:
+        try:
+            res = coin_trade(upbit, interval, total_updown, investment)
+            total_updown.append(res)
+        except:
+            pass
