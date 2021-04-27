@@ -37,6 +37,7 @@ def reservation_cancel(upbit):
         print("예약 없음")
 def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
     # mdf = buy_df
+    benefit = max(benefit, 0.015)
     cutoff = min(cutoff, -0.01)
     my_coin = pd.DataFrame(upbit.get_balances())
     my_coin['coin_name'] = my_coin.unit_currency +'-'+my_coin.currency
