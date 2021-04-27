@@ -149,11 +149,11 @@ def execute_buy_schedule(upbit, mdf, investment):
                 last_investment = min(investment, money)
                 hoga = get_hoga_price(coin_name)
                 default = min_price
-                if bool(min(hoga.get('bid_price')) < min_price):
+                if bool(min(hoga.get('bid_price')) > min_price):
                     print(coin_name+"은 구매 계획에 도달하지 않았다.")
                 else:
                     print(coin_name+ "은 구매 계획에 도달했다.")
-                    ho = list(hoga.get('bid_price')[hoga.get('bid_price') >= min_price])
+                    ho = list(hoga.get('bid_price')[hoga.get('bid_price') <= min_price])
                     if len(ho)>=3:
                         price_set = ho[-3:]
                     else:
@@ -175,6 +175,7 @@ def execute_buy_schedule(upbit, mdf, investment):
         status_df = pd.DataFrame(status_list, columns=['status'], index=[0])
         result = pd.concat([status_df, df_buy], axis=1)
     return result
+
 def check_buy_case(df):
     idx = len(df)
     result = False
