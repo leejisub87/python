@@ -35,7 +35,7 @@ def reservation_cancel(upbit):
         print("모든 예약 취소")
     else :
         print("예약 없음")
-def execute_sell_schedule(upbit, sell_df, cutoff):
+def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
     # mdf = buy_df
     my_coin = pd.DataFrame(upbit.get_balances())
     my_coin['coin_name'] = my_coin.unit_currency +'-'+my_coin.currency
@@ -47,64 +47,56 @@ def execute_sell_schedule(upbit, sell_df, cutoff):
     ticker_sell = my_coin.coin_name
     status_list = []
     for coin_name in ticker_sell:
-        if not coin_name in ticker_predict:
+        avg_price = float(df.avg_buy_price)
+        current_price = pyupbit.get_current_price(coin_name)
+        ratio = (current_price - avg_price) / avg_price
+        hoga = get_hoga_price(coin_name)
+        balance = float(df.balance[0])
+        expiration = False
+        if not coin_name in ticker_predict: # predict sell ...
+            #coin_name = my_coin.coin_name[1]
             df = my_coin[my_coin.coin_name == coin_name]
             df.reset_index(drop=True, inplace=True)
-            hoga = get_hoga_price(coin_name)
-            avg_price = float(df.avg_buy_price)
-            count = df.balance[0]
-            current_price = pyupbit.get_current_price(coin_name)
             time.sleep(0.1)
-            ratio = (current_price - avg_price) / avg_price
-            balance = float(df.balance[0])
             result = []
-            try:
-                if ratio < (-cutoff):  # 손절
-                    print("코인 손절 요청: " + coin_name)
-                    result = upbit.sell_limit_order(coin_name, current_price, balance)
-                else:
-                    print("코인 익절 요청: " + coin_name)
-                    min_price = max(avg_price * 1.2, current_price)
-                    ho = list(hoga.get('ask_price')[hoga.get('ask_price') >= min_price])
-                    if len(bo) > 0 :
-                        res = upbit.sell_limit_order(coin_name, bo[0], balance)
-                        time.sleep(0.1)
-                        if len(res) > 2:
-                            print(coin_name + "을 " + str(price) + "에" + " 매도요청합니다.")
-                            save_uuid(res)
-                            status = 'res_bid'
-                            status_list.append(status)
-            except:
-                print('매도 error: ' + coin_name)
         else:
             df_sell = sell_df[sell_df.coin_name == coin_name]
-            status = 'wait'
             currency_time = datetime.now()
             start_date_ask = np.min(df_sell.start_date_ask)
             end_date_ask = np.max(df_sell.end_date_ask)
-            min_price = np.mean(df_sell.buy_price_max) - 1.96 * np.sqrt(
-                np.std(df_sell.buy_price_max) / len(df_sell.buy_price_max))
             max_price = np.mean(df_sell.sell_price_min) - 1.96 * np.sqrt(
                 np.std(df_sell.sell_price_min) / len(df_sell.sell_price_min))
             updown_levels = np.mean(df_sell.influence_m)
             volume_levels = np.mean(df_sell.influence_v)
-            levels = updown_levels + volume_levels
-
-            hoga = get_hoga_price(coin_name)
-
-            if bool(max(hoga.get('ask_price')) < max_price):
-                print(coin_name + "은 매도가에 도달하지 않았다.")
-            else:
-                print(coin_name+ "은 매도가에 도달했다.")
-                ho = list(hoga.get('ask_price')[hoga.get('ask_price') >= max_price])
+            if currency_time > end_date_ask:
+                 expiration = True
+        try:
+            if bool(ratio < (-cutoff)) | bool(expiration):  # 손절 / period end
+                print("코인 손절 요청: " + coin_name)
+                price = current_price
+            elif ratio > 0.001:
+                print("코인 익절 요청: " + coin_name)
+                if ratio > benefit:
+                    min_price = current_price
+                else:
+                    min_price = max(avg_price * (1 + benefit), current_price)
+                ho = list(hoga.get('ask_price')[hoga.get('ask_price') >= min_price])
                 if len(ho) > 0:
-                    res = upbit.sell_limit_order(coin_name, ho[0], balance)
-                    time.sleep(0.1)
-                    if len(res) > 2:
-                        print(coin_name + "을 " + str(price) + "에" + " 매도요청합니다.")
-                        save_uuid(res)
-                        status = 'res_bid'
-                        status_list.append(status)
+                    price = ho[0]
+            else:
+                min_price = min(avg_price * (1 + benefit), current_price)
+                ho = list(hoga.get('ask_price')[hoga.get('ask_price') >= min_price])
+                if len(ho) > 0:
+                    price = ho[0]
+            res = upbit.sell_limit_order(coin_name, price, balance)
+            time.sleep(0.1)
+            if len(res) > 2:
+                print(coin_name + "을 " + str(ho) + "에" + " 매도요청합니다.")
+                save_uuid(res)
+                status = 'res_bid'
+                status_list.append(status)
+        except:
+            print('매도 error: ' + coin_name)
     sell_df.reset_index(drop=True, inplace=True)
     status_df = pd.DataFrame(status_list, columns=['status'], index=[0])
     result = pd.concat([status_df, sell_df], axis=1)
@@ -369,9 +361,16 @@ def box_information(df):
             default_res = pd.concat([default_res, next_res], axis=0)
     result = box_vervus(default_res)
     return result
+def changed_ratio(df, price_currency):
+    df_1 = df[-1:]
+    changed_ratio = (df_1.close[0] - df_1.open[0]) / df_1.open[0]
+    result = changed_ratio
+    return result
+
 def coin_information(coin_name, interval):
     price_currency = pyupbit.get_current_price(coin_name)
     df = pyupbit.get_ohlcv(coin_name, interval=interval, count=10)
+    ratio = changed_ratio(df, price_currency)
     time.sleep(0.1)
     box = box_information(df) ### criteria_boxplot
     start_date_ask = datetime.now()
@@ -383,13 +382,14 @@ def coin_information(coin_name, interval):
     result['end_date_ask'] = end_date_ask
     result['start_date_bid'] = start_date_bid
     result['end_date_bid'] = end_date_bid
+    result['price_changed_ratio'] = ratio
     result['interval'] = interval
     result['coin_name'] = coin_name
     return result
-def coin_validation(upbit, interval):
-    tickers = pyupbit.get_tickers(fiat="KRW")
+def coin_validation(upbit, tickers, interval):
     li = []
     for coin_name in tickers:
+        #coin_name = tickers[1]
         res = coin_information(coin_name, interval)
         li.append(res)
     df = pd.DataFrame(li)
@@ -486,19 +486,33 @@ def merge_df(df):
     return result
 #구매 평가 요소. 주 동향,
 
-def coin_trade(upbit, interval, cutoff):
+def generate_benefit_cutoff(new_df):
+    count = np.sum(new_df.price_changed_ratio > 0)
+    benefit = np.mean(new_df.price_changed_ratio>0)
+    cutoff = np.mean(new_df.price_changed_ratio)
+    result = {'up_count': count, 'benefit':benefit, 'cutoff':cutoff}
+    return result
+
+def coin_trade(upbit, interval, total_updown, investment):
     tickers = pyupbit.get_tickers(fiat="KRW")
     try:
         new_df = load_df()
     except:
-        new_df = coin_validation(upbit, interval)
+        print("현황 분석 시작.")
+        new_df = coin_validation(upbit, tickers, interval)
         # 저장된 기존 df 를 불러오고 현재 생성된 df를 합친다.
+    print("현황 분석 완료.")
 
+    a = generate_benefit_cutoff(new_df)
+    benefit = a.get('benefit')
+    cutoff = a.get('cutoff')
+    result = a.get('up_count')
+    print("총 코인 수: "+str(len(new_df))+"개, 현재 상승 코인수: "+str(result)+"개, 예상 수익률 : "+str(round(benefit,2)*100)+"%, 예상 손절 : "+str(round(cutoff,2)*100)+"%")
     buy_df = new_df[new_df.check_buy]
     buy_df.reset_index(drop=True, inplace=True)
     buy_df = execute_buy_schedule(upbit, buy_df, investment)
     sell_df = new_df
-    sell_df = execute_sell_schedule(upbit, sell_df, cutoff)
+    sell_df = execute_sell_schedule(upbit, sell_df, cutoff, benefit)
 
     print("schedual generate 시작")
     st = time.time()
@@ -508,7 +522,9 @@ def coin_trade(upbit, interval, cutoff):
     print("schedual generate 종료(" + interval + "): " + str(round(diff, 1)) + '초')
 
     reservation_cancel(upbit)
+    coin_validation(upbit, tickers, interval)
 
+    return result
 
 
 # selection
@@ -516,17 +532,19 @@ def coin_trade(upbit, interval, cutoff):
 # input 1번 불러오면 되는 것들
 if __name__ == '__main__':
     intervals = ["month", "week", "day", "minute240", "minute60", "minute30", "minute10", 'minute5']
-    access_key = '13OWmDwccuUleOzGq5Axg3PmfW1KoFO5igDyuSYM'  # 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'
-    secret_key = 'DN2uMoPwDGF7sa3lbaR4OYGAFg9UNom8erlofCox'  # 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'
+    #access_key = '13OWmDwccuUleOzGq5Axg3PmfW1KoFO5igDyuSYM'
+    access_key = '8o1RiU3sdJDga1jPx34ovI2f5agvPwIw9LAQzNgK'
+    #secret_key = 'DN2uMoPwDGF7sa3lbaR4OYGAFg9UNom8erlofCox'
+    secret_key = 'JUMqnCfnmWxjAqHC04cvqf4bs6JuwbBOHJv58I1y'
 
     upbit = pyupbit.Upbit(access_key, secret_key)
     interval = intervals[7]
     investment = 10000
     cutoff = 0.015
+    total_updown = []
     while True:
         try:
-            coin_trade(upbit, interval, cutoff)
+            res = coin_trade(upbit, interval, total_updown, investment)
+            total_updown.append(res)
         except:
             pass
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
