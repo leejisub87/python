@@ -37,7 +37,7 @@ def reservation_cancel(upbit):
         print("예약 없음")
 def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
     # mdf = buy_df
-    cutoff = max(cutoff, -0.01)
+    cutoff = min(cutoff, -0.01)
     my_coin = pd.DataFrame(upbit.get_balances())
     my_coin['coin_name'] = my_coin.unit_currency +'-'+my_coin.currency
     my_coin['buy_price'] = pd.to_numeric(my_coin.balance, errors='coerce') * pd.to_numeric(my_coin.avg_buy_price, errors='coerce')
@@ -526,10 +526,6 @@ def coin_trade(upbit, interval, total_updown, investment):
     coin_validation(upbit, tickers, interval)
 
     return result
-
-# selection
-
-# selection
 
 # input 1번 불러오면 되는 것들
 if __name__ == '__main__':
