@@ -37,6 +37,7 @@ def reservation_cancel(upbit):
         print("예약 없음")
 def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
     # mdf = buy_df
+    cutoff = max(cutoff, -0.01)
     my_coin = pd.DataFrame(upbit.get_balances())
     my_coin['coin_name'] = my_coin.unit_currency +'-'+my_coin.currency
     my_coin['buy_price'] = pd.to_numeric(my_coin.balance, errors='coerce') * pd.to_numeric(my_coin.avg_buy_price, errors='coerce')
@@ -46,17 +47,18 @@ def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
     ticker_predict = sell_df.coin_name
     ticker_sell = my_coin.coin_name
     status_list = []
-    for coin_name in ticker_sell:
+    for coin_name in list(ticker_sell):
+        df = my_coin[my_coin.coin_name == coin_name]
+        coin_name = list(ticker_sell)[0]
         avg_price = float(df.avg_buy_price)
         current_price = pyupbit.get_current_price(coin_name)
         ratio = (current_price - avg_price) / avg_price
         hoga = get_hoga_price(coin_name)
+        df.reset_index(drop=True, inplace=True)
         balance = float(df.balance[0])
         expiration = False
         if not coin_name in ticker_predict: # predict sell ...
             #coin_name = my_coin.coin_name[1]
-            df = my_coin[my_coin.coin_name == coin_name]
-            df.reset_index(drop=True, inplace=True)
             time.sleep(0.1)
             result = []
         else:
@@ -137,8 +139,7 @@ def execute_buy_schedule(upbit, mdf, investment):
                 last_investment = min(investment, money)
                 hoga = get_hoga_price(coin_name)
                 default = min_price
-                add = 1+levels/10
-                if bool(min(hoga.get('bid_price')) < min_price * add):
+                if bool(min(hoga.get('bid_price')) < min_price):
                     print(coin_name+"은 구매 계획에 도달하지 않았다.")
                 else:
                     print(coin_name+ "은 구매 계획에 도달했다.")
@@ -526,6 +527,7 @@ def coin_trade(upbit, interval, total_updown, investment):
 
     return result
 
+# selection
 
 # selection
 
@@ -533,12 +535,12 @@ def coin_trade(upbit, interval, total_updown, investment):
 if __name__ == '__main__':
     intervals = ["month", "week", "day", "minute240", "minute60", "minute30", "minute10", 'minute5']
     #access_key = '13OWmDwccuUleOzGq5Axg3PmfW1KoFO5igDyuSYM'
-    access_key = '8o1RiU3sdJDga1jPx34ovI2f5agvPwIw9LAQzNgK'
+    access_key = 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'
     #secret_key = 'DN2uMoPwDGF7sa3lbaR4OYGAFg9UNom8erlofCox'
-    secret_key = 'JUMqnCfnmWxjAqHC04cvqf4bs6JuwbBOHJv58I1y'
+    secret_key = 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'
 
     upbit = pyupbit.Upbit(access_key, secret_key)
-    interval = intervals[7]
+    interval = intervals[6]
     investment = 10000
     cutoff = 0.015
     total_updown = []
@@ -548,3 +550,5 @@ if __name__ == '__main__':
             total_updown.append(res)
         except:
             pass
+
+# See PyCharm help at https://www.jetbrains.com/help/pycharm/
