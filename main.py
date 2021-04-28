@@ -4,6 +4,7 @@ import pyupbit
 import time
 from datetime import datetime, timedelta
 import os
+from multiprocessing import Process, Queue
 pd.set_option('display.max_columns', 20)
 
 
@@ -21,60 +22,98 @@ def get_hoga_price(coin_name):
         except:
             pass
     return result
-def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
-    # mdf = sell_df
-    # sell_df = new_df
+def execute_sell(type, balance, coin_name, avg_price, current_price, price):
+    count = balance
+    weight = 1
+    count = count * weight
+    try:
+        res = upbit.sell_limit_order(coin_name, price, count)
+        time.sleep(0.1)
+        if len(res) > 2:
+            ratio = (price - avg_price) / avg_price
+            print("매도 요청("+type+"): " + coin_name + ", 현재가: " + str(current_price) + ", 손익률: " + str(
+                round(ratio * 100, 2)) + "%, 매도 호가(" + type + "): " + str(price))
+            save_uuid(res)
+        else:
+            pass
+    except:
+        print('매도 error: ' + coin_name)
+
+# def execute_sell_set(type, balance, coin_name, avg_price, current_price, price_set):
+#     for price in range(len(price_set)):
+#         count = balance / len(price_set)
+#         weight = 0.5
+#         count = count * weight
+#         try:
+#             res = upbit.sell_limit_order(coin_name, price, count)
+#             time.sleep(0.1)
+#             if len(res) > 2:
+#                 ratio = (price - avg_price) / avg_price
+#                 print("매도 요청("+type+"): " + coin_name + ", 현재가: " + str(current_price) + ", 손익률: " + str(
+#                     round(ratio * 100, 2)) + "%, 매도 호가(" + type + "): " + str(price))
+#                 save_uuid(res)
+#             else:
+#                 pass
+#         except:
+#             print('매도 error: ' + coin_name)
+def execute_sell_schedule(upbit, cutoff, benefit):
+    sell_df = load_df()
+    price_benefit = np.mean(sell_df.price_changed_ratio[sell_df.price_changed_ratio>0])
+    benefit = max(benefit, price_benefit)
+    price_cutoff = np.mean(sell_df.price_changed_ratio)
+    cutoff = abs(max(price_cutoff, -cutoff))
+    count = np.sum(sell_df.price_changed_ratio > 0)
+    up_rate = count/len(sell_df)
     my_coin = pd.DataFrame(upbit.get_balances())
     my_coin['coin_name'] = my_coin.unit_currency +'-'+my_coin.currency
     my_coin['buy_price'] = pd.to_numeric(my_coin.balance, errors='coerce') * pd.to_numeric(my_coin.avg_buy_price, errors='coerce')
     KRW = float(my_coin[0:1].balance)
+    tot_investment = round(KRW + sum(my_coin['buy_price']),0)
     my_coin = my_coin[pd.to_numeric(my_coin.avg_buy_price) > 0]
     predict_tickers = list(sell_df.coin_name) # target price
     my_tickers = list(my_coin.coin_name)
+    print("***************************** ")
+    print("********** 판매 정보 ********** ")
+    print("총투자금액: " + str(tot_investment)+"원, 개수: "+str(len(sell_df))+"개, 상승률: "+str(round(up_rate*100,2))+"%, 예상 수익률 : "+str(round(price_benefit*100,2))+"%, 손절률: -"+ str(round(cutoff*100,2))+"%")
 
-    print("잔액: "+ str(KRW))
     for coin_name in my_tickers:
-        #coin_name = my_tickers[1]
-        df = my_coin[my_coin.coin_name == coin_name].reset_index(drop=True)
-        current_price = pyupbit.get_current_price(coin_name)
-        balance = float(df.balance[0])
-        avg_price = float(df.avg_buy_price)
-        ratio = (current_price - avg_price) / avg_price
-        hoga = get_hoga_price(coin_name)
-        min_price = avg_price * benefit
+        try:
+            #coin_name = my_tickers[0]
+            #coin_name = 'KRW-PLA'
+            df = my_coin[my_coin.coin_name == coin_name].reset_index(drop=True)
+            current_price = pyupbit.get_current_price(coin_name)
+            balance = float(df.balance[0])
+            avg_price = float(df.avg_buy_price)
+            ratio = (current_price - avg_price) / avg_price
+            hoga = get_hoga_price(coin_name)
+            min_price = avg_price * (1+benefit)
 
-        if ratio < -cutoff:
-            type = '손절'
-            price_set = current_price
-        else:
-            type = '익절'
-            ho_ask = hoga.get('ask_price')[hoga.get('ask_price') > min_price]
-            ho_bid = hoga.get('bid_price')[hoga.get('bid_price') > min_price]
-            ho_list = pd.concat([(ho_ask),(ho_bid)], axis = 0).reset_index(drop=True)
-            if bool(len(ho_list) >= 3):
-                price_set = ho_list[-3:]
+            if coin_name in predict_tickers:
+                sdf = sell_df[sell_df.coin_name == coin_name].reset_index(drop=True)
+                sdf = sdf[sdf.end_date_bid  >= datetime.now()]
+                sdf = sdf[sdf.check_sell]
+                sell_price = np.max(sdf.sell_price_min)
+                min_price = max(min_price, sell_price)
+
+            if ratio < -cutoff:
+                type = '손절'
+                price = current_price
+                execute_sell(type, balance, coin_name, avg_price, current_price, price)
+            elif ratio > benefit:
+                type = '익절'
+                ho_ask = hoga.get('ask_price')[hoga.get('ask_price') > min_price]
+                ho_bid = hoga.get('bid_price')[hoga.get('bid_price') > min_price]
+                price_set = [min(ho_ask), max(ho_bid)]
+                price = max(price_set)
+                if len(price_set) > 0:
+                    execute_sell(type, balance, coin_name, avg_price, current_price, price)
             else:
-                price_set = ho_list[-2:]
-            price_set = list(price_set)
-        print("매도 정보: "+coin_name)
-        print("매도 호가("+type+"): " + str(price_set) +", 현재가: "+str(current_price)+", 구매가: "+str(avg_price)+", 손익률: "+str(round(ratio*100,2))+"%")
-        for price in price_set:
-            # price = price_set[0]
-            price = max(price, current_price)
-            count = investment / price
-            try:
-                res = upbit.sell_limit_order(coin_name, price, count)
-                time.sleep(0.1)
-                if len(res) > 2:
-                    print("매도 성공("+type+"): " + coin_name + "/ " + str(price))
-                    save_uuid(res)
-                else:
-                    print("매도 실패("+type+"): " + coin_name + "/ " + str(price))
-            except:
-                print('매도 error: ' + coin_name)
+                print(coin_name+"은 매도 타이밍이 아닙니다.")
+                print("현재가: " + str(current_price) + ", 손익률: " + str(round(ratio * 100, 2)))
+        except:
+            pass
 
-    # 판매 가격 결정하기...
-def excute_buy_df(upbit, df, coin_name, investment):
+def excute_buy(upbit, df, coin_name, investment):
     for i in range(len(df)):
         #i =0
         df = df[i : i + 1]
@@ -94,14 +133,11 @@ def excute_buy_df(upbit, df, coin_name, investment):
                 print(coin_name + "은 구매 계획에 도달했다.")
                 #ho = list(hoga.get('bid_price')[hoga.get('bid_price') <= temp_price])
                 price_set = list(hoga.get('bid_price')[0:3])
-                # if len(ho) >= 3:
-                #     price_set = ho[-3:]
-                # else:
-                #     price_set = ho[-2:]
                 print("구매 호가: "+ str(price_set))
 
                 for price in price_set:
-                    #price = price_set[0]
+                    weight =  (price - temp_price)/temp_price # -값이 작아질수록 좋다. 갭이 커질수록
+                    investment = investment * (1-weight)
                     count = investment / price
                     print("investment money: " + str(count * price))
                     try:
@@ -115,19 +151,25 @@ def excute_buy_df(upbit, df, coin_name, investment):
                     except:
                         print('매수 error: ' + coin_name)
 
-def execute_buy_schedule(upbit, buy_df, investment):
+def execute_buy_schedule(upbit, investment):
+    buy_df = load_df()
+    buy_df = buy_df[buy_df.check_buy]
+    buy_df = buy_df[buy_df.end_date_ask >= datetime.now()]
+    buy_df[buy_df.price_changed_ratio>0]
     money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
     if money < max(5000, investment) :
         print("주문금액 부족")
     else:
-        # mdf = buy_df
+        now = datetime.now()
+        buy_df = buy_df[buy_df.start_date_ask < now]
+        buy_df = buy_df[buy_df.end_date_ask > now]
         buy_df.reset_index(drop=True, inplace=True)
         first_res = []
         tickers = list(set(buy_df.coin_name)) # 구매신청
         for coin_name in tickers:
             df = buy_df[buy_df.coin_name == coin_name]
             df.reset_index(drop=True, inplace=True)
-            excute_buy_df(upbit, df, coin_name, investment)
+            excute_buy(upbit, df, coin_name, investment)
 
 ##################################### data generate
 def check_buy_case(df):
@@ -188,7 +230,7 @@ def criteria_updown(df):
         volume_status = 'up'
     else:
         volume_status = 'normal'
-    result = {'volume_status':volume_status, 'close_rate':close_rate, 'open_status':open_status}
+    result = {'volume_status':volume_status,'volume_rate':volume_rate, 'close_rate':close_rate, 'open_status':open_status}
     return result
 def coin_predict(default_df,benefit):
     df = default_df[-5:]
@@ -196,12 +238,12 @@ def coin_predict(default_df,benefit):
     default = df[-1:].reset_index()
     influence_m = np.sum(np.mean(df.length_mid) < df.length_mid)
     influence_v = np.sqrt(pow(np.sum(np.mean(df.volume)< df.volume),2) * pow(influence_m,2))
-    #min_buy_price = min(default.open[0], default.close[0]) - influence_v * (default.avg_length_low[0] - 1.96 * np.sqrt(default.std_length_low[0]))
+    min_buy_price = min(default.open[0], default.close[0]) - influence_v * (default.avg_length_low[0] - 1.96 * np.sqrt(default.std_length_low[0]))
     max_buy_price = min(default.open[0], default.close[0]) - influence_v * (default.avg_length_low[0] + 1.96 * np.sqrt(default.std_length_low[0]))
     #max_sell_price = max(default.open[0], default.close[0]) - influence_v * (default.avg_length_high[0] + 1.96 * np.sqrt(default.std_length_high[0]))
 
     min_sell_price = max(default.open[0], default.close[0]) - influence_v * (default.avg_length_high[0] - 1.96 * np.sqrt(default.std_length_high[0]))
-    min_sell_price = max(min_sell_price, max_buy_price * benefit)
+    min_sell_price = max(min_sell_price, max_buy_price * (1+benefit))
     check_buy = check_buy_case(df)
     check_sell = check_sell_case(df)
     # 상태
@@ -386,15 +428,14 @@ def coin_information_interval(tickers, interval,benefit):
     df = pd.DataFrame(li)
     result = df
     return result
-def coin_validation(upbit, tickers, interval, benefit):
+def coin_validation(upbit, interval, benefit):
+    tickers = pyupbit.get_tickers(fiat="KRW")
     st = time.time()
     print("분석 시작 : "+interval)
     df = coin_information_interval(tickers, interval, benefit)
-    df[df.check_buy].reset_index(drop=True, inplace=True)
-    res = merge_df(df)
+    result = merge_df(df)
     et = time.time()
     diff = round(et-st,2)
-    result = res[res.check_buy].reset_index(drop=True)
     print("분석 종료 : " + str(diff)+"초")
     print("selection coin count: "+str(len(result.coin_name))+", avg_changed_price: "+str(round(np.mean(result.price_changed_ratio),5)*100)+"%")
     return result
@@ -499,56 +540,58 @@ def reservation_cancel(upbit):
     else :
         print("예약 없음")
 
-def coin_trade(upbit, interval, total_updown, investment, cutoff, benefit):
-    intervals = ["month", "week", "day", "minute240", "minute60", "minute30", "minute10", 'minute5']
-    tickers = pyupbit.get_tickers(fiat="KRW")
-    print("현황 분석 시작.")
-    #new_df = load_df()
-    new_df = coin_validation(upbit, tickers, interval, benefit)
-    print("현황 분석 완료.")
+def coin_trade(upbit, interval, investment, cutoff, benefit):
 
-    price_benefit = np.mean(new_df.price_changed_ratio[new_df.price_changed_ratio>0])
-    price_cutoff = np.mean(new_df.price_changed_ratio)
-    count = np.sum(new_df.price_changed_ratio > 0)
-    up_rate = count/len(new_df)
-    print("selection coin information")
-    print("개수: "+str(len(new_df))+"개, 상승률: "+str(round(up_rate*100,2))+"%, 예상 수익률 : "+str(round(price_benefit*100,2))+"%")
-    buy_df = new_df
-    print("buying schedule")
-    execute_buy_schedule(upbit, buy_df, investment)
-
-    sell_df = new_df
-    cutoff = abs(max(price_cutoff, cutoff))
-    print("손절률: "+ str(round(cutoff*100,2))+"%")
-
-    print("selling schedule")
-    execute_sell_schedule(upbit, sell_df, cutoff, price_benefit)
-
-    reservation_cancel(upbit)
-    print("reservation cancel")
-    time.sleep(2)
-
-    result = price_benefit
-    return result
+    coin_validation(upbit, interval, benefit)
+    st = time.time()
+    diff = 0
+    while diff < 5 * 60:
+        reservation_cancel(upbit)
+        af = 0
+        while af < 1 * 60:
+            execute_buy_schedule(upbit, investment)
+            execute_sell_schedule(upbit, cutoff, benefit)
+            et = time.time()
+            af = et - st
+        et = time.time()
+        diff = et - st
+    # result = Queue()
+    # th1 = Process(target=coin_validation, args=(upbit, interval, benefit))
+    # th2 = Process(target=execute_buy_schedule, args=(upbit, investment))
+    # th3 = Process(target=execute_sell_schedule, args=(upbit, cutoff, benefit))
+    #
+    # th1.start()
+    # th2.start()
+    # th3.start()
+    # th1.join()
+    # th2.join()
+    # th3.join()
+    #
+    # result.put('STOP')
+    # total = 0
+    # while True:
+    #     tmp = result.get()
+    #     if tmp == 'STOP':
+    #         break
+    #     else:
+    #         total += tmp
+    # print(f"Result: {total}")
+    # return result
 
 
 # input 1번 불러오면 되는 것들
 if __name__ == '__main__':
     intervals = ["month", "week", "day", "minute240", "minute60", "minute30", "minute10", 'minute5']
-    access_key = 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'
-    secret_key = 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'
+    #js - home
+    access_key = 'Rln0poebBg1tTREEXQuUIDDeNSiwV9KCkpfZfw8w'
+    secret_key = 'bkqV71xEsPR7UySr4BxGmEDHcWq3bIWSeIrcI1xD'
 
     upbit = pyupbit.Upbit(access_key, secret_key)
-    interval = intervals[7] # 0 ~ 7
-    benefit = 0.01
-    investment = 10000
+    interval = intervals[6] # 0 ~ 7
+    benefit = 0.02
+    investment = 30000
     cutoff = 0.015
-    total_updown = []
     while True:
-        try:
-            res = coin_trade(upbit, interval, total_updown, investment, cutoff, benefit)
-            total_updown.append(res)
-        except:
-            pass
+        coin_trade(upbit, interval, investment, cutoff, benefit)
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
