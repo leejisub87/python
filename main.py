@@ -28,11 +28,11 @@ def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
     my_coin['coin_name'] = my_coin.unit_currency +'-'+my_coin.currency
     my_coin['buy_price'] = pd.to_numeric(my_coin.balance, errors='coerce') * pd.to_numeric(my_coin.avg_buy_price, errors='coerce')
     KRW = float(my_coin[0:1].balance)
-
     my_coin = my_coin[pd.to_numeric(my_coin.avg_buy_price) > 0]
     predict_tickers = list(sell_df.coin_name) # target price
     my_tickers = list(my_coin.coin_name)
 
+    print("잔액: "+KRW)
     for coin_name in my_tickers:
         df = my_coin[my_coin.coin_name == coin_name].reset_index(drop=True)
         current_price = pyupbit.get_current_price(coin_name)
@@ -55,7 +55,8 @@ def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
             else:
                 price_set = ho_list[-2:]
             price_set = list(price_set)
-            print("매도 호가("+type+"): " + str(price_set))
+        print("매도 정보: "+coin_name)
+        print("매도 호가("+type+"): " + str(price_set) +", 현재가: "+str(current_price)+", 구매가: "+str(avg_price)+", 손익률: "+str(round(ratio*100,2))+"%")
         for price in price_set:
             # price = price_set[0]
             count = investment / price
@@ -518,7 +519,8 @@ def coin_trade(upbit, interval, total_updown, investment, cutoff, benefit):
     execute_buy_schedule(upbit, buy_df, investment)
 
     sell_df = new_df
-    cutoff = max(price_cutoff, cutoff)
+    cutoff = abs(max(price_cutoff, cutoff))
+    print("손절률: "+ str(round(cutoff*100,2))+"%")
     execute_sell_schedule(upbit, sell_df, cutoff, price_benefit)
 
     reservation_cancel(upbit)
@@ -530,11 +532,11 @@ def coin_trade(upbit, interval, total_updown, investment, cutoff, benefit):
 # input 1번 불러오면 되는 것들
 if __name__ == '__main__':
     intervals = ["month", "week", "day", "minute240", "minute60", "minute30", "minute10", 'minute5']
-    access_key = '8o1RiU3sdJDga1jPx34ovI2f5agvPwIw9LAQzNgK'
-    secret_key = 'JUMqnCfnmWxjAqHC04cvqf4bs6JuwbBOHJv58I1y'
+    access_key = 'w3C7rTmiIrxZax2xEwnNg2YHk0e5jlpoChw6mJj3'
+    secret_key = 'ndXTTxDAKUZ3xY9UfuzheWY32Ir83emyx16E4VoP'
 
     upbit = pyupbit.Upbit(access_key, secret_key)
-    interval = intervals[6] # 0 ~ 7
+    interval = intervals[7] # 0 ~ 7
     benefit = 0.01
     investment = 10000
     cutoff = 0.015
