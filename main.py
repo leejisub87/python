@@ -1,10 +1,3 @@
-import numpy as np
-import pandas as pd
-import pyupbit
-import time
-from datetime import datetime, timedelta
-import os
-pd.set_option('display.max_columns', 20)
 
 
 #################################### data generate
@@ -32,7 +25,7 @@ def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
     predict_tickers = list(sell_df.coin_name) # target price
     my_tickers = list(my_coin.coin_name)
 
-    print("잔액: "+KRW)
+    print("잔액: "+ str(KRW))
     for coin_name in my_tickers:
         df = my_coin[my_coin.coin_name == coin_name].reset_index(drop=True)
         current_price = pyupbit.get_current_price(coin_name)
@@ -512,40 +505,18 @@ def coin_trade(upbit, interval, total_updown, investment, cutoff, benefit):
     up_rate = count/len(new_df)
     print("selection coin information")
     print("개수: "+str(len(new_df))+"개, 상승률: "+str(round(up_rate*100,2))+"%, 예상 수익률 : "+str(round(price_benefit*100,2))+"%")
-
-###################
-
     buy_df = new_df
+    print("buying schedule")
     execute_buy_schedule(upbit, buy_df, investment)
 
     sell_df = new_df
     cutoff = abs(max(price_cutoff, cutoff))
     print("손절률: "+ str(round(cutoff*100,2))+"%")
+
+    print("selling schedule")
     execute_sell_schedule(upbit, sell_df, cutoff, price_benefit)
 
     reservation_cancel(upbit)
 
     result = price_benefit
     return result
-
-
-# input 1번 불러오면 되는 것들
-if __name__ == '__main__':
-    intervals = ["month", "week", "day", "minute240", "minute60", "minute30", "minute10", 'minute5']
-    access_key = 'w3C7rTmiIrxZax2xEwnNg2YHk0e5jlpoChw6mJj3'
-    secret_key = 'ndXTTxDAKUZ3xY9UfuzheWY32Ir83emyx16E4VoP'
-
-    upbit = pyupbit.Upbit(access_key, secret_key)
-    interval = intervals[7] # 0 ~ 7
-    benefit = 0.01
-    investment = 10000
-    cutoff = 0.015
-    total_updown = []
-    while True:
-        try:
-            res = coin_trade(upbit, interval, total_updown, investment, cutoff, benefit)
-            total_updown.append(res)
-        except:
-            pass
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
