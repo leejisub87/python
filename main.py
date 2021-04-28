@@ -1,3 +1,10 @@
+import numpy as np
+import pandas as pd
+import pyupbit
+import time
+from datetime import datetime, timedelta
+import os
+pd.set_option('display.max_columns', 20)
 
 
 #################################### data generate
@@ -54,7 +61,7 @@ def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
             # price = price_set[0]
             count = investment / price
             try:
-                res = upbit.buy_limit_order(coin_name, price, count)
+                res = upbit.sell_limit_order(coin_name, price, count)
                 time.sleep(0.1)
                 if len(res) > 2:
                     print("매도 성공("+type+"): " + coin_name + "/ " + str(price))
@@ -118,8 +125,6 @@ def execute_buy_schedule(upbit, buy_df, investment):
             df = buy_df[buy_df.coin_name == coin_name]
             df.reset_index(drop=True, inplace=True)
             excute_buy_df(upbit, df, coin_name, investment)
-
-
 
 ##################################### data generate
 def check_buy_case(df):
@@ -520,3 +525,25 @@ def coin_trade(upbit, interval, total_updown, investment, cutoff, benefit):
 
     result = price_benefit
     return result
+
+
+# input 1번 불러오면 되는 것들
+if __name__ == '__main__':
+    intervals = ["month", "week", "day", "minute240", "minute60", "minute30", "minute10", 'minute5']
+    access_key = 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'
+    secret_key = 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'
+
+    upbit = pyupbit.Upbit(access_key, secret_key)
+    interval = intervals[7] # 0 ~ 7
+    benefit = 0.01
+    investment = 10000
+    cutoff = 0.015
+    total_updown = []
+    while True:
+        try:
+            res = coin_trade(upbit, interval, total_updown, investment, cutoff, benefit)
+            total_updown.append(res)
+        except:
+            pass
+
+# See PyCharm help at https://www.jetbrains.com/help/pycharm/
