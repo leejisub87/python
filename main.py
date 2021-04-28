@@ -3,8 +3,7 @@ import pandas as pd
 import pyupbit
 import time
 from datetime import datetime, timedelta
-import os
-from multiprocessing import Process, Queue
+import os 
 pd.set_option('display.max_columns', 20)
 
 
@@ -39,23 +38,6 @@ def execute_sell(type, balance, coin_name, avg_price, current_price, price):
     except:
         print('매도 error: ' + coin_name)
 
-# def execute_sell_set(type, balance, coin_name, avg_price, current_price, price_set):
-#     for price in range(len(price_set)):
-#         count = balance / len(price_set)
-#         weight = 0.5
-#         count = count * weight
-#         try:
-#             res = upbit.sell_limit_order(coin_name, price, count)
-#             time.sleep(0.1)
-#             if len(res) > 2:
-#                 ratio = (price - avg_price) / avg_price
-#                 print("매도 요청("+type+"): " + coin_name + ", 현재가: " + str(current_price) + ", 손익률: " + str(
-#                     round(ratio * 100, 2)) + "%, 매도 호가(" + type + "): " + str(price))
-#                 save_uuid(res)
-#             else:
-#                 pass
-#         except:
-#             print('매도 error: ' + coin_name)
 def execute_sell_schedule(upbit, cutoff, benefit):
     sell_df = load_df()
     price_benefit = np.mean(sell_df.price_changed_ratio[sell_df.price_changed_ratio>0])
@@ -114,42 +96,46 @@ def execute_sell_schedule(upbit, cutoff, benefit):
             pass
 
 def excute_buy(upbit, df, coin_name, investment):
-    for i in range(len(df)):
-        #i =0
-        df = df[i : i + 1]
-        status = 'wait'
-        temp_price = df.buy_price_max[0]
-        money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
-        # 구매 가격 결정하기
-        if money < max(5000, investment):
-            print("주문금액 부족")
-        else:
-            last_investment = min(investment, money)
-            hoga = get_hoga_price(coin_name)
-            criteria = max(hoga.get('ask_price')) > temp_price > min(hoga.get('bid_price'))
-            if not criteria:
-                print(coin_name + "은 구매 계획에 도달하지 않았다.")
+    if len(df) == 0:
+        print("데이터가 없습니다.")
+    else:
+        for i in range(len(df)):
+            #i =1
+            df = df[i : i + 1].reset_index()
+            status = 'wait'
+            temp_price = df.buy_price_max[0]
+            money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
+            # 구매 가격 결정하기
+            if money < max(5000, investment):
+                print("주문금액 부족")
             else:
-                print(coin_name + "은 구매 계획에 도달했다.")
-                #ho = list(hoga.get('bid_price')[hoga.get('bid_price') <= temp_price])
-                price_set = list(hoga.get('bid_price')[0:3])
-                print("구매 호가: "+ str(price_set))
+                last_investment = min(investment, money)
+                hoga = get_hoga_price(coin_name)
+                criteria = max(hoga.get('ask_price')) > temp_price > min(hoga.get('bid_price'))
+                if not criteria:
+                    print(coin_name + "은 구매 계획에 도달하지 않았다.")
+                else:
+                    print(coin_name + "은 구매 계획에 도달했다.")
+                    #ho = list(hoga.get('bid_price')[hoga.get('bid_price') <= temp_price])
+                    price_set = list(hoga.get('bid_price')[0:3])
+                    print("구매 호가: "+ str(price_set))
 
-                for price in price_set:
-                    weight =  (price - temp_price)/temp_price # -값이 작아질수록 좋다. 갭이 커질수록
-                    investment = investment * (1-weight)
-                    count = investment / price
-                    print("investment money: " + str(count * price))
-                    try:
-                        res = upbit.buy_limit_order(coin_name, price, count)
-                        time.sleep(0.1)
-                        if len(res) > 2:
-                            print("구매 성공: " + coin_name + "/ " + str(price))
-                            save_uuid(res)
-                        else:
-                            print("구매 실패: " + coin_name + "/ " + str(price))
-                    except:
-                        print('매수 error: ' + coin_name)
+                    for price in price_set:
+                        #price = price_set[0]
+                        weight =  (price - temp_price)/temp_price # -값이 작아질수록 좋다. 갭이 커질수록
+                        investment = round(investment * (1-weight),-2)
+                        count = investment / price
+                        print("investment money: " + str(count * price))
+                        try:
+                            res = upbit.buy_limit_order(coin_name, price, count)
+                            time.sleep(0.1)
+                            if len(res) > 2:
+                                print("구매 성공: " + coin_name + "/ " + str(price))
+                                save_uuid(res)
+                            else:
+                                print("구매 실패: " + coin_name + "/ " + str(price))
+                        except:
+                            print('매수 error: ' + coin_name)
 
 def execute_buy_schedule(upbit, investment):
     buy_df = load_df()
@@ -167,6 +153,7 @@ def execute_buy_schedule(upbit, investment):
         first_res = []
         tickers = list(set(buy_df.coin_name)) # 구매신청
         for coin_name in tickers:
+            print(coin_name)
             df = buy_df[buy_df.coin_name == coin_name]
             df.reset_index(drop=True, inplace=True)
             excute_buy(upbit, df, coin_name, investment)
