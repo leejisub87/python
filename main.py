@@ -34,6 +34,7 @@ def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
 
     print("잔액: "+ str(KRW))
     for coin_name in my_tickers:
+        #coin_name = my_tickers[1]
         df = my_coin[my_coin.coin_name == coin_name].reset_index(drop=True)
         current_price = pyupbit.get_current_price(coin_name)
         balance = float(df.balance[0])
@@ -59,6 +60,7 @@ def execute_sell_schedule(upbit, sell_df, cutoff, benefit):
         print("매도 호가("+type+"): " + str(price_set) +", 현재가: "+str(current_price)+", 구매가: "+str(avg_price)+", 손익률: "+str(round(ratio*100,2))+"%")
         for price in price_set:
             # price = price_set[0]
+            price = max(price, current_price)
             count = investment / price
             try:
                 res = upbit.sell_limit_order(coin_name, price, count)
@@ -90,17 +92,18 @@ def excute_buy_df(upbit, df, coin_name, investment):
                 print(coin_name + "은 구매 계획에 도달하지 않았다.")
             else:
                 print(coin_name + "은 구매 계획에 도달했다.")
-                ho = list(hoga.get('bid_price')[hoga.get('bid_price') <= temp_price])
-                if len(ho) >= 3:
-                    price_set = ho[-3:]
-                else:
-                    price_set = ho[-2:]
+                #ho = list(hoga.get('bid_price')[hoga.get('bid_price') <= temp_price])
+                price_set = list(hoga.get('bid_price')[0:3])
+                # if len(ho) >= 3:
+                #     price_set = ho[-3:]
+                # else:
+                #     price_set = ho[-2:]
                 print("구매 호가: "+ str(price_set))
 
                 for price in price_set:
                     #price = price_set[0]
                     count = investment / price
-                    print(count * price)
+                    print("investment money: " + str(count * price))
                     try:
                         res = upbit.buy_limit_order(coin_name, price, count)
                         time.sleep(0.1)
@@ -429,7 +432,7 @@ def load_uuid():
     # uuid -> dataframe, 기존의 uuid를 불러온다. uuid를 저장한다
     directory = 'reservation'
     ori_df= []
-    if not os.path.exists(directory) :
+    if os.path.exists(directory) :
         name = os.listdir(directory)[-1]
         json_file = directory + '/' + name
         ori_df = pd.read_json(json_file, orient='table')
@@ -522,6 +525,8 @@ def coin_trade(upbit, interval, total_updown, investment, cutoff, benefit):
     execute_sell_schedule(upbit, sell_df, cutoff, price_benefit)
 
     reservation_cancel(upbit)
+    print("reservation cancel")
+    time.sleep(2)
 
     result = price_benefit
     return result
