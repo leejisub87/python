@@ -34,13 +34,14 @@ def execute_sell(type, balance, coin_name, avg_price, current_price, price):
             ratio = (price - avg_price) / avg_price
             print("매도 요청("+type+"): " + coin_name + ", 현재가: " + str(current_price) + ", 손익률: " + str(
                 round(ratio * 100, 2)) + "%, 매도 호가(" + type + "): " + str(price))
-            save_uuid(res)
+            save_uuid(res.get('uuid'))
         else:
             pass
     except:
         print('매도 error: ' + coin_name)
 
 def execute_sell_schedule(upbit, cutoff, benefit):
+    time.sleep(5)
     while True:
         st = time.time()
         diff = 0
@@ -65,8 +66,13 @@ def execute_sell_schedule(upbit, cutoff, benefit):
             price_cutoff = np.mean(sell_df.price_changed_ratio)
             cutoff = abs(max(price_cutoff, -abs(cutoff)))
             count = np.sum(sell_df.price_changed_ratio > 0)
-            up_rate = int(round(count/len(sell_df),2)*100)
             my_coin = pd.DataFrame(upbit.get_balances())
+            if count == 0:
+                up_rate = 0
+            elif len(sell_df) == 0:
+                up_rate = round(count/len(my_coin),2)
+            else:
+                up_rate = round(count/len(sell_df),2)
             time.sleep(0.1)
             my_coin['coin_name'] = my_coin.unit_currency +'-'+my_coin.currency
             my_coin['buy_price'] = pd.to_numeric(my_coin.balance, errors='coerce') * pd.to_numeric(my_coin.avg_buy_price, errors='coerce')
@@ -77,7 +83,7 @@ def execute_sell_schedule(upbit, cutoff, benefit):
             my_tickers = list(my_coin.coin_name)
             print("***************************** ")
             print("********** 판매 정보 ********** ")
-            print("총투자금액: " + str(tot_investment)+"원, 개수: "+str(len(sell_df))+"개, 상승률: "+str(up_rate)+"%, 예상 수익률 : "+str(round(price_benefit*100,2))+"%, 손절률: -"+ str(round(cutoff*100,2))+"%")
+            print("총투자금액: " + str(tot_investment)+"원, 개수: "+str(len(sell_df))+"개, 상승률: "+str(round(up_rate*100,2))+"%, 예상 수익률 : "+str(round(price_benefit*100,2))+"%, 손절률: -"+ str(round(cutoff*100,2))+"%")
 
             for coin_name in my_tickers:
                 try:
@@ -110,8 +116,7 @@ def execute_sell_schedule(upbit, cutoff, benefit):
                         if len(price_set) > 0:
                             execute_sell(type, balance, coin_name, avg_price, current_price, price)
                     else:
-                        print(coin_name+"은 매도 타이밍이 아닙니다.")
-                        print("현재가: " + str(current_price) + ", 손익률: " + str(round(ratio * 100, 2)))
+                        print(coin_name+" 현재가: " + str(current_price) + ", 손익률: " + str(round(ratio * 100, 2)))
                 except:
                     pass
             et = time.time()
@@ -136,11 +141,10 @@ def excute_buy(upbit, df, coin_name, investment):
                 hoga = get_hoga_price(coin_name)
                 criteria = max(hoga.get('ask_price')) > temp_price > min(hoga.get('bid_price'))
                 if not criteria:
-                    print(coin_name + "은 구매 계획에 도달하지 않았다.")
+                    print("************************************")#print(coin_name + "은 구매 계획에 도달하지 않았다.")
                 else:
-                    print(coin_name + "은 구매 계획에 도달했다.")
                     price_set = list(hoga.get('bid_price')[0:3])
-                    print("구매 호가: "+ str(price_set))
+                    print(coin_name+" 구매 호가: "+ str(price_set))
 
                     for price in price_set:
                         #price = price_set[0]
@@ -153,11 +157,11 @@ def excute_buy(upbit, df, coin_name, investment):
                             time.sleep(0.1)
                             if len(res) > 2:
                                 print("구매 성공: " + coin_name + "/ " + str(price))
-                                save_uuid(res)
+                                save_uuid(res.get('uuid'))
                             else:
-                                print("구매 실패: " + coin_name + "/ " + str(price))
+                                pass
                         except:
-                            print('매수 error: ' + coin_name)
+                            pass
 def execute_buy_schedule(upbit, investment):
     while True:
         st = time.time()
@@ -166,11 +170,7 @@ def execute_buy_schedule(upbit, investment):
         reservation_cancel(upbit)
         while diff < 60:
             while len(buy_df) == 0:
-                try:
-                    buy_df = load_df()
-                except:
-                    pass
-
+                buy_df = load_df()
             money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
             time.sleep(0.1)
 
@@ -189,10 +189,14 @@ def execute_buy_schedule(upbit, investment):
                 for coin_name in tickers:
                     df = buy_df[buy_df.coin_name == coin_name]
                     df.reset_index(drop=True, inplace=True)
-                    excute_buy(upbit, df, coin_name, investment)
+                    try:
+                        excute_buy(upbit, df, coin_name, investment)
+                    except:
+                        pass
                     time.sleep(0.1)
             et = time.time()
             diff = et - st
+        print(diff)
 
 ##################################### data generate
 def check_buy_case(df):
@@ -210,17 +214,13 @@ def check_buy_case(df):
         result = True
     return result
 def check_sell_case(df):
-    a = criteria_updown(df[-2:])
-    b = criteria_updown(df[-3:-1])
     idx = len(df)
     result = False
-    if bool(np.sum(df.color == 'red')>=3) & bool(df.chart_name[idx-1] in ['stone_cross','lower_tail_pole_umbong','upper_tail_pole_umbong']):
+    if bool(np.sum(df.color == 'red') >= 3) & bool(df.chart_name[idx-1] in ['stone_cross','lower_tail_pole_umbong','upper_tail_pole_umbong']):
         result = True
-    elif bool(np.sum(df.color == 'red')>=3) & bool(df.chart_name[idx-2] in ['longbody_yangbong','shortbody_yangbong']):
+    elif bool(np.sum(df.color == 'red') >= 3) & bool(df.chart_name[idx-2] in ['longbody_yangbong','shortbody_yangbong']):
         result = True
-    elif bool(np.sum(df.color == 'red')>=3) & bool(df.chart_name[idx-1] in ['spinning_tops','doji_cross']):
-        result = True
-    elif bool(b.get('volume_status') == 'up') & bool(b.get('open_status') == 'up') & bool(a.get('volume_status') == 'down') & bool(a.get('open_status') == 'down'):
+    elif bool(np.sum(df.color == 'red') >= 3) & bool(df.chart_name[idx-1] in ['spinning_tops','doji_cross']):
         result = True
     return result
 def criteria_updown(df):
@@ -255,12 +255,13 @@ def criteria_updown(df):
         volume_status = 'normal'
     result = {'volume_status':volume_status,'volume_rate':volume_rate, 'close_rate':close_rate, 'open_status':open_status}
     return result
+
 def coin_predict(default_df,benefit):
     df = default_df[-5:]
-    df.reset_index(inplace=True)
+    df.reset_index(inplace=True, drop = True)
     default = df[-1:].reset_index()
     influence_m = np.sum(np.mean(df.length_mid) < df.length_mid)
-    influence_v = np.sqrt(pow(np.sum(np.mean(df.volume)< df.volume),2) * pow(influence_m,2))
+    influence_v = np.sqrt(pow(np.sum(np.mean(df.volume) < df.volume),2) * pow(influence_m,2))
     min_buy_price = min(default.open[0], default.close[0]) - influence_v * (default.avg_length_low[0] - 1.96 * np.sqrt(default.std_length_low[0]))
     max_buy_price = min(default.open[0], default.close[0]) - influence_v * (default.avg_length_low[0] + 1.96 * np.sqrt(default.std_length_low[0]))
     #max_sell_price = max(default.open[0], default.close[0]) - influence_v * (default.avg_length_high[0] + 1.96 * np.sqrt(default.std_length_high[0]))
@@ -296,6 +297,7 @@ def period_end_date(intervals):
         end_time = start_time + timedelta(minutes=1)
     result = end_time
     return result
+
 def chart_name(df_1):
     type = df_1.color[0]
     high = df_1.length_high[0]
@@ -338,6 +340,7 @@ def chart_name(df_1):
     else:
         result = 'need to name'
     return result
+
 def box_create(df_1) :
     df_1 = df_1.reset_index(drop=True)
     if bool(df_1.open[0] <= df_1.close[0]):
@@ -353,19 +356,19 @@ def box_create(df_1) :
     name = chart_name(df_1)
     df_1['chart_name'] = name
     return df_1
+
 def box_vervus(default_res,benefit):
-    default_df = []
     df = default_res[-5:]
-    for i in range(len(df)):
-        a = default_res[i:i+1]
-        b = default_res[i+1:i+2]
+    default_df = []
+    res = []
+    for i in range(len(df)-1):
+        a = default_res[i:i+1].reset_index(drop= True)
+        b = default_res[i+1:i+2].reset_index(drop= True)
         result = []
-        for col_name in list(a.columns):
-            try:
-                c = (b[col_name] - a[col_name])/a[col_name]
-                result.append({'col_name':col_name, 'value':c[0]})
-            except:
-                pass
+        l = ['open', 'high', 'low', 'close', 'volume', 'length_high', 'length_low', 'length_mid', 'rate_mid', 'rate_high', 'rate_low']
+        for col_name in l:
+            c = (b[col_name][0] - a[col_name][0])/a[col_name][0]
+            result.append({'col_name': col_name, 'value':c})
         df_1 = pd.DataFrame(result)
         columns_name = list('vs_'+df_1.col_name)
         value = list(df_1.value)
@@ -384,30 +387,7 @@ def box_vervus(default_res,benefit):
     default_df['std_length_low'] = np.std(df.length_low)
     result = coin_predict(default_df, benefit)
     return result
-# def box_vervus(default_res):
-#     default_df = []
-#     for i in range(len(default_res)-1):
-#         a = default_res[i:i+1]
-#         b = default_res[i+1:i+2]
-#         result = []
-#         for col_name in list(a.columns):
-#             try:
-#                 c = (b[col_name] - a[col_name])/a[col_name]
-#                 result.append({'col_name':col_name, 'value':c[0]})
-#             except:
-#                 pass
-#         df_1 = pd.DataFrame(result)
-#         columns_name = list('vs_'+df_1.col_name)
-#         value = list(df_1.value)
-#         b = b.reset_index(drop=True)
-#         for j in range(len(value)):
-#             b[columns_name[j]] = value[j]
-#         if i == 0 :
-#             default_df = b
-#         else:
-#             default_df = pd.concat([default_df, b], axis=0)
-#     result = coin_predict(default_df)
-#     return result
+
 def box_information(df,benefit):
     default_res = []
     for i in range(len(df)):
@@ -417,8 +397,10 @@ def box_information(df,benefit):
         else:
             next_res = box_create(df_1)
             default_res = pd.concat([default_res, next_res], axis=0)
+            default_res.reset_index(drop=True, inplace=True)
     result = box_vervus(default_res, benefit)
     return result
+
 def changed_ratio(df, price_currency):
     df_1 = df[-1:]
     changed_ratio = (df_1.close[0] - df_1.open[0]) / df_1.open[0]
@@ -469,7 +451,7 @@ def coin_validation(upbit, interval, benefit):
 def save_uuid(uuid):
     #uuid = res
     # uuid -> dataframe, 기존의 uuid를 불러온다. uuid를 저장한다
-    df = pd.DataFrame([uuid.get('uuid')], columns=['uuid']).reset_index(drop=True)
+    df = pd.DataFrame(uuid, columns=['uuid']).reset_index(drop=True)
     #df = df.dropna(axis=0)
 
     name = 'reservation_list.json'
@@ -512,9 +494,7 @@ def load_df():
     name = 'schedule_list.json'
     directory = 'schedule'
     json_file = directory + '/' + name
-
-    name = os.listdir(directory)[-1]
-    json_file = directory + '/' + name
+    #name = os.listdir(directory)[-1]
     ori_df = pd.read_json(json_file, orient='table')
     ori_df = pd.DataFrame(ori_df)
     return ori_df
@@ -547,6 +527,7 @@ def merge_df(df):
 ######################### cancel
 def convert(set):
     return [*set, ]
+
 def reservation_cancel(upbit):
     df = load_uuid()
     if len(df) > 0:
@@ -554,7 +535,8 @@ def reservation_cancel(upbit):
         while len(uuids)>0:
             for uuid in uuids:
                 status = 'wait'
-                while True:
+                res = []
+                while len(res)==0:
                     try:
                         res = upbit.cancel_order(uuid)
                         time.sleep(0.1)
@@ -562,14 +544,11 @@ def reservation_cancel(upbit):
                     except:
                         pass
         print("모든 예약 취소")
-        save_uuid((uuids))
-    else :
-        print("예약 없음")
-
+        save_uuid(uuids)
 
 def multi_coin_validation(upbit, benefit):
+    #interval = intervals[0]
     intervals = ["day", "minute240", "minute60", "minute30", "minute15", 'minute10']
-    tot_st = list()
     tt = list()
     at = time.time()
     while True:
@@ -607,7 +586,6 @@ if __name__ == '__main__':
     #hy - home
     access_key = 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'  # 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'
     secret_key = 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'  # 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'
-
     upbit = pyupbit.Upbit(access_key, secret_key)
     investment = 30000
     cutoff = 0.005
