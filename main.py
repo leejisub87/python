@@ -123,8 +123,7 @@ def execute_sell_schedule(upbit, cutoff, benefit):
                     if price > 0:
                         execute_sell(upbit, type, balance, coin_name, avg_price, current_price, price)
                 else:
-                    print("판매 대기: "+coin_name+" 현재가: " + str(current_price) +"("+ratio+"), 목표률: "+str(round(benefit,3)) +", 손익률: " + str(round(ratio * 100, 2)))
-
+                    print("판매 대기: "+coin_name+" 현재가: " + str(current_price) +"("+str(round(ratio*100,2))+"%), 목표률: "+str(round(benefit*100,2)) +"%, 손익률: " + str(round(ratio * 100, 2)))
 
 def excute_buy(upbit, df, coin_name, investment):
     if len(df) == 0:
