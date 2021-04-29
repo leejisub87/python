@@ -7,7 +7,6 @@ import os
 from multiprocessing import Process, Queue
 pd.set_option('display.max_columns', 20)
 
-
 #################################### data generate
 def get_hoga_price(coin_name):
     orderbook = []
@@ -170,7 +169,10 @@ def execute_buy_schedule(upbit, investment):
         reservation_cancel(upbit)
         while diff < 60:
             while len(buy_df) == 0:
-                buy_df = load_df()
+                try:
+                    buy_df = load_df()
+                except:
+                    pass
             money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
             time.sleep(0.1)
 
@@ -367,7 +369,10 @@ def box_vervus(default_res,benefit):
         result = []
         l = ['open', 'high', 'low', 'close', 'volume', 'length_high', 'length_low', 'length_mid', 'rate_mid', 'rate_high', 'rate_low']
         for col_name in l:
-            c = (b[col_name][0] - a[col_name][0])/a[col_name][0]
+            if a[col_name][0] > 0:
+                c = (b[col_name][0] - a[col_name][0])/a[col_name][0]
+            else:
+                c = 0
             result.append({'col_name': col_name, 'value':c})
         df_1 = pd.DataFrame(result)
         columns_name = list('vs_'+df_1.col_name)
