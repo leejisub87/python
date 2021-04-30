@@ -27,18 +27,21 @@ def execute_sell(upbit, type, balance, coin_name, avg_price, current_price, pric
         count = balance
         weight = 1
         count = count * weight
+        r = [3,2,1,0,-1,-2,-3,-4,-5,-6,-7]
         try:
-            res = upbit.sell_limit_order(coin_name, price, count)
-            time.sleep(1)
-            if len(res) > 2:
-                ratio = (price - avg_price) / avg_price
-                print("매도 요청("+type+"): " + coin_name + ", 현재가: " + str(current_price) + ", 손익률: " + str(
-                    round(ratio * 100, 2)) + "%, 매도 호가(" + type + "): " + str(price))
-                save_uuid(res.get('uuid'))
-            else:
-                pass
+            for i in r:
+                res = upbit.sell_limit_order(coin_name, round(price,i), count)
+                time.sleep(0.5)
+                if len(res) > 2:
+                    ratio = (price - avg_price) / avg_price
+                    print("매도 요청("+type+"): " + coin_name + ", 현재가: " + str(current_price) + ", 손익률: " + str(
+                        round(ratio * 100, 2)) + "%, 매도 호가(" + type + "): " + str(price))
+                    print(res.get('uuid')[0])
+                    save_uuid(res.get('uuid')[0])
+                    time.sleep(0.5)
+                    break
         except:
-            print('매도 error: ' + coin_name)
+            pass
     else:
         print("판매 실패: "+coin_name +"은 판매 최소금액이 부족")
 
@@ -58,70 +61,82 @@ def execute_sell_schedule(upbit, cutoff, benefit):
                     pass
 
             now = datetime.now()
-            sell_df = sell_df[sell_df.start_date_bid <= now]
+            #sell_df = sell_df[sell_df.start_date_bid <= now]
             sell_df = sell_df[sell_df.end_date_bid >= now]
             #sell_df = sell_df[sell_df.check_sell]
-            sell_df.sort_values('price_changed_ratio', ascending=True, inplace=True)
+            sell_df.sort_values('price_changed_ratio', ascending=False, inplace=True)
             sell_df.reset_index(drop=True, inplace=True)
-            price_benefit = np.mean(sell_df.price_changed_ratio[sell_df.price_changed_ratio>0])
-            benefit = max(benefit, price_benefit)
-            price_cutoff = np.mean(sell_df.price_changed_ratio)
-            cutoff = abs(max(price_cutoff, -abs(cutoff)))
-            count = np.sum(sell_df.price_changed_ratio > 0)
             my_coin = pd.DataFrame(upbit.get_balances())
-            if count == 0:
-                up_rate = 0
-            elif len(sell_df) == 0:
-                up_rate = round(count/len(my_coin),2)
-            else:
-                up_rate = round(count/len(sell_df),2)
-            time.sleep(1)
+
             my_coin['coin_name'] = my_coin.unit_currency +'-'+my_coin.currency
             my_coin['buy_price'] = pd.to_numeric(my_coin.balance, errors='coerce') * pd.to_numeric(my_coin.avg_buy_price, errors='coerce')
             KRW = float(my_coin[0:1].balance)
             tot_investment = round(KRW + sum(my_coin['buy_price']),0)
+
             my_coin = my_coin[pd.to_numeric(my_coin.avg_buy_price) > 0]
-            predict_tickers = list(sell_df.coin_name) # target price
+            my_coin = my_coin[my_coin.buy_price > 5000]
+            my_coin.sort_values('buy_price', ascending=False, inplace=True)
+            my_coin.reset_index(drop=True, inplace=True)
+
+            price_cutoff = np.mean(sell_df.price_changed_ratio)
+
+            predict_tickers = list(sell_df.coin_name)  # target price
             my_tickers = list(my_coin.coin_name)
+
+            up_count = np.sum(sell_df.price_changed_ratio > 0)
+
+            if up_count == 0:
+                up_rate = 0
+            elif len(sell_df) == 0:
+                up_rate = round(up_count / len(my_coin), 2)
+            else:
+                up_rate = round(up_count / len(sell_df), 2)
+            time.sleep(0.5)
+
             print("***************************** ")
             print("********** 판매 정보 ********** ")
-            print("총투자금액: " + str(tot_investment)+"원, 개수: "+str(len(sell_df))+"개, 상승률: "+str(round(up_rate*100,2))+"%, 예상 수익률 : "+str(round(benefit*100,2))+"%, 손절률: -"+ str(round(cutoff*100,2))+"%")
+            print("총투자금액: " + str(tot_investment) + "원, 개수: " + str(len(sell_df)) + "개, 상승률: " + str(
+                round(up_rate * 100, 2)) + "%, 입력수익률 : " + str(round(benefit * 100, 2)) + "%, 입력손절률: -" + str(
+                round(cutoff * 100, 2)) + "%")
 
             for coin_name in my_tickers:
-
-                #coin_name = my_tickers[0]
-                #coin_name = 'KRW-PLA'
+                coin_name = 'KRW-ETH'
                 df = my_coin[my_coin.coin_name == coin_name].reset_index(drop=True)
-                current_price = pyupbit.get_current_price(coin_name)
-                time.sleep(0.2)
                 balance = float(df.balance[0])
                 avg_price = float(df.avg_buy_price)
+                current_price = pyupbit.get_current_price(coin_name)
+                time.sleep(0.2)
                 ratio = (current_price - avg_price) / avg_price
                 hoga = get_hoga_price(coin_name)
-                min_price = avg_price * (1+benefit)
-
+                price = avg_price
+                min_benefit = benefit
+                weight = 1
                 if coin_name in predict_tickers:
                     sdf = sell_df[sell_df.coin_name == coin_name].reset_index(drop=True)
-                    sell_price = np.max(sdf.sell_price_min)
-                    min_price = max(min_price, sell_price)
+                    weight = sdf.price_changed_ratio[0]
+                    sell_price = np.mean(sdf.sell_price_min) + 1.96 * np.std(sdf.sell_price_min)/np.sqrt(len(sdf.sell_price_min))
+                    price = max(avg_price, sell_price)
+                    min_benefit = min_benefit + min_benefit * sdf.price_changed_ratio[0]
+                min_benefit = max(min_benefit, 0.01)
+                price = price * (1 + min_benefit)
 
-                if ratio < -cutoff:
+                min_cutoff = cutoff - price_cutoff
+
+                if ratio < - min_cutoff:
                     type = '손절'
                     price = current_price
                     execute_sell(upbit, type, balance, coin_name, avg_price, current_price, price)
 
                 elif ratio > benefit:
                     type = '익절'
-                    ho_ask = hoga.get('ask_price')[hoga.get('ask_price') > min_price]
-                    ho_bid = hoga.get('bid_price')[hoga.get('bid_price') > min_price]
-                    price = 0
-                    try:
-                        price_set = [min(ho_ask), max(ho_bid)]
-                        price = max(price_set)
-                    except:
-                        price = max(hoga.get('bid_price'))
-                    if price > 0:
-                        execute_sell(upbit, type, balance, coin_name, avg_price, current_price, price)
+                    if np.sum(hoga.get('ask_price') > price) >= 1:
+                        price = min(hoga.get('ask_price')[hoga.get('ask_price') > price])
+                    elif np.sum(hoga.get('bid_price') > price) >= 1:
+                        price = hoga.get('bid_price')[0]
+                    else:
+                        price = current_price
+                    execute_sell(upbit, type, balance, coin_name, avg_price, current_price, price)
+
                 else:
                     print("판매 대기: "+coin_name+" 현재가: " + str(current_price) +"("+str(round(ratio*100,2))+"%), 목표률: "+str(round(benefit*100,2)) +"%, 손익률: " + str(round(ratio * 100, 2)))
 
@@ -151,8 +166,8 @@ def excute_buy(upbit, df, coin_name, investment):
 
                     for price in price_set:
                         #price = price_set[0]
-                        weight =  (price - temp_price)/temp_price # -값이 작아질수록 좋다. 갭이 커질수록
-                        investment = round(investment * (1-weight),-2)
+                        weight =  (price - last_investment)/temp_price # -값이 작아질수록 좋다. 갭이 커질수록
+                        investment = round(investment * (1-weight), -2)
                         count = investment / price
                         print("investment money: " + str(count * price))
                         try:
@@ -173,37 +188,37 @@ def execute_buy_schedule(upbit, investment):
         buy_df = []
         reservation_cancel(upbit)
         while diff < 60:
-            while len(buy_df) == 0:
-                try:
-                    buy_df = load_df()
-                except:
-                    pass
             money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
-            time.sleep(1)
+            time.sleep(0.5)
 
-            if money < max(5000, investment):
+            if money <= max(5000, investment):
                 print("주문금액 부족")
             else:
-                now = datetime.now()
-                buy_df = buy_df[buy_df.check_buy]
-                buy_df = buy_df[buy_df.start_date_ask < now]
-                buy_df = buy_df[buy_df.end_date_ask > now]
-                buy_df = buy_df[buy_df.price_changed_ratio > 0]
-                buy_df.sort_values('price_changed_ratio', inplace=True, ascending = False)
-                buy_df.reset_index(drop = True, inplace =True)
-                first_res = []
-                tickers = list(set(buy_df.coin_name)) # 구매신청
-                for coin_name in tickers:
-                    df = buy_df[buy_df.coin_name == coin_name]
-                    df.reset_index(drop=True, inplace=True)
+                while len(buy_df) == 0:
                     try:
-                        excute_buy(upbit, df, coin_name, investment)
+                        buy_df = load_df()
                     except:
                         pass
-                    time.sleep(0.1)
+                now = datetime.now()
+                buy_df = buy_df[buy_df.check_buy]
+                buy_df = buy_df[buy_df.start_date_ask <= now]
+                buy_df = buy_df[buy_df.end_date_ask >= now]
+               # buy_df = buy_df[buy_df.price_changed_ratio > 0]
+                buy_df.reset_index(drop = True, inplace =True)
+                buy_df.sort_values('price_changed_ratio', inplace=True, ascending = False)
+                first_res = []
+                tickers = list(set(buy_df.coin_name)) # 구매신청
+                if len(buy_df) > 0:
+                    for coin_name in tickers:
+                        df = buy_df[buy_df.coin_name == coin_name]
+                        df.reset_index(drop=True, inplace=True)
+                        try:
+                            excute_buy(upbit, df, coin_name, investment)
+                        except:
+                            pass
+                        time.sleep(0.1)
             et = time.time()
             diff = et - st
-        print(diff)
 
 ##################################### data generate
 def check_buy_case(df):
@@ -446,7 +461,6 @@ def coin_information_interval(tickers, interval,benefit):
     result = df
     return result
 def coin_validation(upbit, interval, benefit):
-
     tickers = pyupbit.get_tickers(fiat="KRW")
     st = time.time()
     print("분석 시작 : "+interval)
@@ -455,7 +469,7 @@ def coin_validation(upbit, interval, benefit):
     et = time.time()
     diff = round(et-st,2)
     print("분석 종료 : " + str(diff)+"초")
-    print("selection coin count: "+str(len(result.coin_name))+", avg_changed_price: "+str(round(np.mean(result.price_changed_ratio),5)*100)+"%")
+    print("selection coin count: "+str(len(set(result.coin_name)))+", avg_changed_price: "+str(round(np.mean(result.price_changed_ratio)*100,5))+"%")
     return result
 
 
@@ -474,19 +488,18 @@ def save_uuid(uuid):
         os.makedirs(directory)
         # 데이터 읽고 머지
     file_list = os.listdir(directory)
-    merge_df = df
+    mdf = df
     if len(file_list) >= 1:
         ori_df = pd.read_json(json_file, orient='table')
-        merge_df = pd.concat([ori_df.reset_index(drop=True), merge_df.reset_index(drop=True)], axis=0)
-        merge_df.reset_index(drop=True, inplace=True)
+        mdf = pd.concat([ori_df.reset_index(drop=True), mdf.reset_index(drop=True)], axis=0)
+        mdf.reset_index(drop=True, inplace=True)
 
-    try:
+    while len(file_list) == 0:
         os.remove(json_file)
-    except:
-        print("not exsist file: schedule_list.json")
+        file_list = os.listdir(directory)
 
-    merge_df.to_json(json_file, orient='table')
-    return merge_df
+    mdf.to_json(json_file, orient='table')
+    return mdf
 def load_uuid():
     # uuid -> dataframe, 기존의 uuid를 불러온다. uuid를 저장한다
     directory = 'reservation'
@@ -495,24 +508,19 @@ def load_uuid():
         name = os.listdir(directory)[-1]
         json_file = directory + '/' + name
         ori_df = pd.read_json(json_file, orient='table')
-
     else:
         print("예약 내역이 없습니다.")
-
     return ori_df
 def load_df():
-    dt_now = datetime.now()
-    now = dt_now.strftime('%Y%m%d')
     name = 'schedule_list.json'
     directory = 'schedule'
     json_file = directory + '/' + name
-    #name = os.listdir(directory)[-1]
     ori_df = pd.read_json(json_file, orient='table')
-    ori_df = pd.DataFrame(ori_df)
+    ori_df = pd.DataFrame(ori_df).reset_index(drop=True)
     return ori_df
+
 def merge_df(df):
-    #df = new_df
-    merge_df = df
+    mdf = df
     name = 'schedule_list.json'
     directory = 'schedule'
     json_file = directory + '/' + name
@@ -523,17 +531,17 @@ def merge_df(df):
     file_list = os.listdir(directory)
     if len(file_list) >= 1:
         ori_df = pd.read_json(json_file, orient='table')
-        merge_df = pd.concat([ori_df.reset_index(drop=True), merge_df.reset_index(drop=True)], axis=0)
-        merge_df.reset_index(drop = True, inplace = True)
+        mdf = pd.concat([ori_df.reset_index(drop=True), mdf.reset_index(drop=True)], axis=0)
+        mdf.reset_index(drop = True, inplace = True)
+
     now = datetime.now()
-    merge_df = merge_df[now <= merge_df.end_date_bid]
-    merge_df.reset_index(drop=True, inplace=True)
-    try:
+    mdf = mdf[now <= mdf.end_date_bid]
+    mdf.reset_index(drop=True, inplace=True)
+    while len(file_list) >= 1 :
         os.remove(json_file)
-    except:
-        print("not exsist file: schedule_list.json")
-    merge_df.to_json(json_file, orient='table')
-    return df
+        file_list = os.listdir(directory)
+    mdf.to_json(json_file, orient='table')
+    return mdf
 
 
 ######################### cancel
@@ -541,7 +549,11 @@ def convert(set):
     return [*set, ]
 
 def reservation_cancel(upbit):
-    df = load_uuid()
+    df = []
+    try:
+        df = load_uuid()
+    except:
+        pass
     if len(df) > 0:
         uuids = convert(set(df.uuid))
         while len(uuids)>0:
@@ -628,8 +640,6 @@ def coin_trade(upbit, investment, cutoff, benefit):
     th1 = Process(target=multi_coin_validation, args=(upbit, benefit))
     th2 = Process(target=execute_buy_schedule, args=(upbit, investment))
     th3 = Process(target=execute_sell_schedule, args=(upbit, cutoff, benefit))
-
-    reservation_cancel(upbit)
     result = Queue()
     th1.start()
     th2.start()
@@ -639,15 +649,12 @@ def coin_trade(upbit, investment, cutoff, benefit):
     th3.join()
 
 
-
 # input 1번 불러오면 되는 것들
 if __name__ == '__main__':
-    #intervals = ["month", "week", "day", "minute240", "minute60", "minute15", "minute10", 'minute5']
-    #hy - home
-    access_key = '8o1RiU3sdJDga1jPx34ovI2f5agvPwIw9LAQzNgK'  # 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'
-    secret_key = 'JUMqnCfnmWxjAqHC04cvqf4bs6JuwbBOHJv58I1y'  # 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'
+    access_key = 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'  # ''
+    secret_key = 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'  # ''
     upbit = pyupbit.Upbit(access_key, secret_key)
-    investment = 50000
+    investment = 5000
     cutoff = 0.009
     benefit = 0.019
     coin_trade(upbit, investment, cutoff, benefit)
