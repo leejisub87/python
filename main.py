@@ -644,10 +644,10 @@ def coin_trade(upbit, investment, cutoff, benefit):
 if __name__ == '__main__':
     #intervals = ["month", "week", "day", "minute240", "minute60", "minute15", "minute10", 'minute5']
     #hy - home
-    access_key = 'Rln0poebBg1tTREEXQuUIDDeNSiwV9KCkpfZfw8w'  # 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'
-    secret_key = 'bkqV71xEsPR7UySr4BxGmEDHcWq3bIWSeIrcI1xD'  # 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'
+    access_key = '8o1RiU3sdJDga1jPx34ovI2f5agvPwIw9LAQzNgK'  # 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'
+    secret_key = 'JUMqnCfnmWxjAqHC04cvqf4bs6JuwbBOHJv58I1y'  # 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'
     upbit = pyupbit.Upbit(access_key, secret_key)
-    investment = 10000
+    investment = 50000
     cutoff = 0.009
     benefit = 0.019
     coin_trade(upbit, investment, cutoff, benefit)
