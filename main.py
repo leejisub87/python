@@ -100,7 +100,6 @@ def execute_sell_schedule(upbit, cutoff, benefit):
                 round(cutoff * 100, 2)) + "%")
 
             for coin_name in my_tickers:
-                coin_name = 'KRW-ETH'
                 df = my_coin[my_coin.coin_name == coin_name].reset_index(drop=True)
                 balance = float(df.balance[0])
                 avg_price = float(df.avg_buy_price)
