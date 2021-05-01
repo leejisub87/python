@@ -95,7 +95,7 @@ def execute_sell_schedule(upbit, cutoff, benefit):
                     balance = float(df.balance[0])
                     avg_price = float(df.avg_buy_price)
                     current_price = pyupbit.get_current_price(coin_name)
-                    time.sleep(0.2)
+                    time.sleep(0.3)
                     ratio = (current_price - avg_price) / avg_price
                     hoga = get_hoga_price(coin_name)
                     price = avg_price
@@ -150,7 +150,6 @@ def excute_buy(upbit, df, coin_name, investment):
         print("데이터가 없습니다.")
     else:
         for i in range(len(df)):
-            #i =1
             df = df[i : i + 1].reset_index(drop=True)
             status = 'wait'
             temp_price = df.max_buy_price[0]
@@ -168,11 +167,7 @@ def excute_buy(upbit, df, coin_name, investment):
                 else:
                     price_set = list(hoga.get('bid_price')[0:3])
                     print(coin_name+" 구매 호가: "+ str(price_set))
-
                     for price in price_set:
-                        #price = price_set[0]
-                        weight =  (price - last_investment)/temp_price # -값이 작아질수록 좋다. 갭이 커질수록
-                        investment = round(investment * (1-weight), -2)
                         count = investment / price
                         try:
                             res = upbit.buy_limit_order(coin_name, price, count)
@@ -188,12 +183,12 @@ def execute_buy_schedule(upbit, investment):
     while True:
         st = time.time()
         diff = 0
-        buy_df = []
+
         reservation_cancel(upbit)
         while diff < 10:
             money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
             time.sleep(0.5)
-
+            buy_df = []
             if money <= max(5000, investment):
                 print("주문금액 부족")
             else:
@@ -213,6 +208,7 @@ def execute_buy_schedule(upbit, investment):
                 tickers = list(set(buy_df.coin_name)) # 구매신청
                 if len(buy_df) > 0:
                     for coin_name in tickers:
+                        coin_name = tickers[0]
                         df = buy_df[buy_df.coin_name == coin_name]
                         df.reset_index(drop=True, inplace=True)
                         try:
