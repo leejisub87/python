@@ -93,7 +93,6 @@ def execute_sell_schedule(upbit, cutoff, benefit):
                 round(cutoff * 100, 2)) + "%")
 
             for coin_name in my_tickers:
-                print("********** 판매 정보:" +coin_name+ "********** ")
                 if coin_name in remove_tickers:
                     print("구매 코인과 중복: "+ coin_name)
                 else:
@@ -139,8 +138,7 @@ def execute_sell_schedule(upbit, cutoff, benefit):
                         type = '대기'
                         price = 0
                         pass
-                    print("상태 : "+ type +", 가격: " + str(price))
-                    print(coin_name+" 현재가: " + str(current_price) +"("+str(round(ratio*100,2))+"%), 목표률: "+str(round(min_benefit*100,2)) +"%, 손절률: " + str(round(min_cutoff * 100, 2)))
+                    print("상태 : "+ type + ", coin_name+"+"현재가: " + str(current_price) +"("+str(round(ratio*100,2))+"%), 목표률: "+str(round(min_benefit*100,2)) +"%, 손절률: " + str(round(min_cutoff * 100, 2)))
 
 def excute_buy(upbit, df, coin_name, investment):
     if len(df) == 0:
@@ -264,15 +262,13 @@ def check_buy_case(df):
         result = True
     elif bool(status == 'down') & bool(df.chart_name[3] == 'longbody_umbong') & bool(df.chart_name[4] in ['longbody_yangbong', 'shortbody_yangbong']):
         result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[idx-1] in ['stone_cross','lower_tail_pole_umbong']):
+    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[4] in ['stone_cross','lower_tail_pole_umbong']):
         result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[idx-1] in ['dragonfly_cross', 'upper_tail_pole_yangong']):
+    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[4] in ['dragonfly_cross', 'upper_tail_pole_yangong']):
         result = True
-    elif bool(df.chart_name[idx-1] in ['pole_yangbong', 'longbody_yangbong']):
+    elif bool(np.sum(df.color == 'blue') >= 4) & bool(np.sum(df.chart_name == 'pole_umbong')>=2) & bool(df.chart_name[4] in ['shooting_star','upper_tail_pole_umbong']) :
         result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[idx-1] == 'pole_umbong'):
-        result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[idx-1] in ['doji_cross', 'spinning_tops']):
+    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[4] in ['doji_cross', 'spinning_tops']):
         result = True
     return result
 
