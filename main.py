@@ -4,731 +4,672 @@ import pyupbit
 import time
 from datetime import datetime, timedelta
 import os
-from multiprocessing import Process, Queue
+import math
+#from multiprocessing import Process, Queue
+
 pd.set_option('display.max_columns', 20)
 
-#################################### data generate
-def get_hoga_price(coin_name):
-    orderbook = []
-    result = []
-    while not orderbook:
-        orderbook = pyupbit.get_orderbook(coin_name)
-        time.sleep(0.2)
-        try:
-            df_orderbook = pd.DataFrame(orderbook[0]['orderbook_units'])
-            ask_price = df_orderbook.ask_price
-            bid_price = df_orderbook.bid_price
-            result = {'ask_price': ask_price, 'bid_price': bid_price}
-        except:
-            pass
-    return result
+class search_coin:
+    def __init__(self, coin_name, interval):
+        self.coin_name = coin_name
+        self.interval = interval
+        self.df = pyupbit.get_ohlcv(self.coin_name, interval=self.interval, count=10)
+    def search(self):
+        self.df = pyupbit.get_ohlcv(self.coin_name, interval=self.interval, count=7)
+    def excute(self):
+        buy_point = 0
+        sell_point = 0
+        levels = self.buy_senario_1()
+        if levels > 0: # 구매
+            buy_point = levels
+        elif levels <0:# 판매
+            sell_point = abs(levels)
 
-def execute_sell(upbit, type, balance, coin_name, avg_price, current_price, price):
-    if price * balance > 5000:
-        count = balance
+        result_2 = self.buy_senario_2()
+        if result_2.get('check_buy'):
+            buy_point = buy_point + 1 + result_2.get('influence_v')
+        elif result_2.get('check_sell'):
+            sell_point = sell_point + 1 + result_2.get('influence_v')
+        result = {'buy_point': buy_point, 'sell_point':sell_point }
+        return result
+    ############################
+    #### senario1 - 시작
+    ############################
+    def buy_senario_1(self):
+        coin_name = self.coin_name
+
+        df = self.df
+        a = float(self.avg_price(df[-1:])['open'])
+        b = float(self.avg_price(df[-3:])['open'])
+        c = float(self.avg_price(df[-5:])['open'])
+        d = float(self.avg_price(df[-7:])['open'])
+
+        if a > b:
+            criteria = 'up'
+        elif a < b:
+            criteria = 'down'
+        else:
+            if a > c:
+                criteria = 'up'
+            elif a < c:
+                criteria = 'down'
+            else:
+                if a > d:
+                    criteria = 'up'
+                elif a < d:
+                    criteria = 'down'
+                else:
+                    criteria = 'normal'
+                    # 시나리오 1. 상승장 & 주가 상승을 예고하는 캔들 활용
+        levels = 0
+        box = self.price_criteria_boxplot(0)
+        if bool(box['high'] == 0):
+            if criteria == 'up':  # 상승장
+                if bool(box['middle'] < box['low']) & bool(box['type'] == 'red'):  # 망치형
+                    levels = -1
+                    print(coin_name + '의 주가 (소)하락을 예고')
+                elif bool(box['type'] == 'red') & bool(box['middle'] == 0) & bool(box['low'] == 0) & bool(
+                        box['high'] == 0):
+                    levels = 0
+                elif bool(box['low'] > box['middle'] * 1.5) & bool(box['high'] > box['middle'] * 1.5) & bool(
+                        box['middle'] == 0):
+                    levels = -1
+                    print(coin_name + '의 주가 (소)하락을 예고')
+                elif bool(type == 'red') & bool(box['low'] == 0) & bool(box['high'] > box['middle'] * 1.5) & bool(
+                        box['middle'] > 0):
+                    levels = -1
+                    print(coin_name + '의 주가 (소)하락을 예고')
+                elif bool(type == 'blue') & bool(box['low'] == 0) & bool(box['high'] > box['middle'] * 10):
+                    levels = -2
+                    print(coin_name + '의 주가 (대)하락을 예고')
+                elif bool(type == 'blue') & bool(box['low'] == 0) & bool(box['high'] > box['middle'] * 1.5) & bool(
+                        box['middle'] > 0):
+                    levels = -2
+                    print(coin_name + '의 주가 (대)하락을 예고')
+
+                elif box['middle'] > box['low']:  # up
+                    if box['type'] == 'red':
+                        if box['low'] == 0:
+                            levels = 2
+                            print(coin_name + '의 주가 (대)상승을 예고')
+                        else:
+                            levels = 1
+                            print(coin_name + '의 주가 (소)상승을 예고')
+                    else:
+                        if box['low'] == 0:
+                            levels = 2
+                            print(coin_name + '의 주가 (대)상승을 예고')
+                        else:
+                            levels = 1
+                            print(coin_name + '의 주가 (소)상승을 예고')
+            elif criteria == 'down':  # 하락장
+                if bool(type == 'blue') & bool(box['low'] == 0) & bool(box['high'] > box['middle'] * 10):
+                    levels = 2
+                    print(coin_name + '의 주가 (대)상승을 예고')
+                elif bool(box['type'] == 'blue') & bool(box['middle'] == 0) & bool(box['low'] == 0) & bool(
+                        box['high'] == 0):
+                    levels = 0
+                elif bool(box['low'] > box['middle'] * 1.5) & bool(box['high'] > box['middle'] * 1.5) & bool(
+                        box['middle'] == 0):
+                    levels = 1
+                    print(coin_name + '의 주가 (소)상승을 예고')
+                elif bool(type == 'red') & bool(box['low'] == 0) & bool(box['high'] > box['middle'] * 1.5) & bool(
+                        box['middle'] > 0):
+                    levels = 1
+                    print(coin_name + '의 주가 (소)상승을 예고')
+                elif bool(type == 'blue') & bool(box['low'] == 0) & bool(box['high'] > box['middle'] * 1.5) & bool(
+                        box['middle'] > 0):
+                    levels = 2
+                    print(coin_name + '의 주가 (대)반등을 예고')
+                elif box['middle'] < box['low']:
+                    if box['type'] == 'red':  # 망치형
+                        levels = 2
+                        print(coin_name + '의 주가 (큰)반등을 예고')
+                    else:  # 교수형
+                        levels = 1
+                        print(coin_name + '의 주가 (소)반등을 예고')
+
+        return levels
+    def price_criteria_boxplot(self, point):
+        bdf = self.before_point_price(point)
+        value = bdf['close'] - bdf['open']
+        if value >= 0:
+            type = "red"
+            diff_high = bdf['high'] - bdf['close']
+            diff_middle = value
+            diff_low = bdf['open'] - bdf['low']
+        else:
+            type = "blue"
+            diff_high = bdf['high'] - bdf['close']
+            diff_middle = - value
+            diff_low = bdf['open'] - bdf['low']
+        result = {'type': type, 'high': diff_high, 'middle': diff_middle, 'low': diff_low}
+        return result
+    def before_point_price(self, point):
+        df = self.df[-7:]
+        open = df['open'][-1 - point]
+        close = df['close'][-1 - point]
+        low = df['low'][-1 - point]
+        high = df['high'][-1 - point]
+        volume = df['volume'][-1 - point]
+        result = {'open': open, 'close': close, 'low': low, 'high': high, 'volume': volume}
+        return result
+    def avg_price(self, df):
+        open = round(np.mean(df['open']), -1)
+        close = round(np.mean(df['close']), -1)
+        low = round(np.mean(df['low']), -1)
+        high = round(np.mean(df['high']), -1)
+        volume = round(np.mean(df['volume']), -1)
+        result = {'open': open, 'close': close, 'low': low, 'high': high, 'volume': volume}
+        return result
+    ############################
+    #### senario1 - 종료
+    ############################
+    def buy_senario_2(self):
+        return self.box_information()
+    def check_buy_case(self,df):
+        idx = len(df)
+        updown = self.criteria_updown(df)
+        status = []
+        if bool(np.sum(updown.volume_status == 'down') >= 3) & bool(np.sum(updown.volume_status == 'down') >= 3):
+            status = 'down'
+        elif bool(np.sum(updown.volume_status == 'up') >= 3) & bool(np.sum(updown.volume_status == 'up') >= 3):
+            status = 'up'
+
+        result = False
+        if bool(status == 'down') & bool(df.chart_name[4] == 'shooting_star'):
+            result = True
+        elif bool(status == 'down') & bool(df.chart_name[4] == 'upper_tail_pole_yangong'):
+            result = True
+        elif bool(status == 'down') & bool(df.chart_name[2] == 'lower_tail_pole_yangong') & bool(
+                df.chart_name[3] == 'upper_tail_pole_yangong') & bool(df.chart_name[4] == 'lower_tail_pole_yangong'):
+            result = True
+        elif bool(df.chart_name[3] == 'longbody_umbong') & bool(df.chart_name[4] == 'shortbody_yangbong'):
+            result = True
+        elif bool(status == 'down') & bool(df.chart_name[3] == 'longbody_umbong') & bool(
+                df.chart_name[4] in ['shortbody_yangbong', 'rickshawen_doji', 'longbody_yangbong']):
+            result = True
+        elif bool(status == 'down') & bool(df.chart_name[3] == 'longbody_umbong') & bool(
+                df.chart_name[4] in ['longbody_yangbong', 'rickshawen_doji']):
+            result = True
+        elif bool(status == 'down') & bool(df.chart_name[2] == 'longbody_umbong') & bool(
+                df.chart_name[3] == 'shortbody_yangbong') & bool(
+                df.chart_name[4] == 'longbody_yangbong'):
+            result = True
+        elif bool(status == 'down') & bool(df.chart_name[2] == 'longbody_umbong') & bool(
+                df.chart_name[3] == 'doji_cross') & bool(
+                df.chart_name[4] == 'longbody_yangbong'):
+            result = True
+        elif bool(status == 'down') & bool(df.chart_name[2] == 'longbody_umbong') & bool(
+                df.chart_name[3] == 'longbody_yangbong') & bool(
+                df.chart_name[4] == 'shortbody_yangbong'):
+            result = True
+        elif bool(status == 'down') & bool(df.chart_name[2] == 'longbody_umbong') & bool(
+                df.chart_name[3] == 'longbody_yangbong') & bool(
+            df.chart_name[4] == 'shortbody_yangbong'):
+            result = True
+        elif bool(status == 'down') & bool(np.sum(df.color == 'blue') >= 4) & bool(
+                df.chart_name[3] == 'shooting_star') & bool(df.chart_name[4] == 'longbody_yangbong'):
+            result = True
+        elif bool(status == 'down') & bool(df.chart_name[3] == 'shooting_star') & bool(
+                df.chart_name[4] == 'pole_yangbong'):
+            result = True
+        elif bool(status == 'down') & bool(df.chart_name[3] == 'longbody_umbong') & bool(
+                df.chart_name[4] in ['longbody_yangbong', 'shortbody_yangbong']):
+            result = True
+        elif bool(np.sum(df.color == 'blue') >= 4) & bool(
+                df.chart_name[4] in ['stone_cross', 'lower_tail_pole_umbong']):
+            result = True
+        elif bool(np.sum(df.color == 'blue') >= 4) & bool(
+                df.chart_name[4] in ['dragonfly_cross', 'upper_tail_pole_yangong']):
+            result = True
+        elif bool(np.sum(df.color == 'blue') >= 4) & bool(np.sum(df.chart_name == 'pole_umbong') >= 2) & bool(
+                df.chart_name[4] in ['shooting_star', 'upper_tail_pole_umbong']):
+            result = True
+        elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[4] in ['doji_cross', 'spinning_tops']):
+            result = True
+        elif bool(status == 'down') & bool(np.sum(df.chart_name == 'longbody_umbong') >= 2) & bool(
+                np.sum(df.chart_name == 'longbody_yangbong') >= 1) & bool(df.chart_name[4] in ['longbody_umbong']):
+            result = True
+        elif bool(status == 'down') & bool(np.sum(df.chart_name == 'longbody_umbong') >= 2) & bool(
+                np.sum(df.chart_name == 'shortbody_umbong') >= 1):
+            result = True
+        elif bool(status == 'down') & bool(np.sum(df.chart_name == 'longbody_umbong') >= 2) & bool(
+                np.sum(df.chart_name[4] in ['shooting_star', 'lower_tail_pole_umbong']) >= 1):
+            result = True
+        return result
+    def check_sell_case(self,df):
+        idx = len(df)
+        updown = self.criteria_updown(df)
+        result = False
+        if bool(np.sum(updown.volume_status == 'down') >= 3) & bool(np.sum(updown.volume_status == 'down') >= 3):
+            status = 'down'
+        elif bool(np.sum(updown.volume_status == 'up') >= 3) & bool(np.sum(updown.volume_status == 'up') >= 3):
+            status = 'up'
+        ####################################################
+        #### 하락 반전형 캔들
+        ## 유성형
+        if bool(status == 'up') & bool(df.chart_name[4] == 'upper_tail_pole_yangong') & bool(df.color[4] == 'blue'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[4] == 'lower_tail_pole_yangbong') & bool(df.color[4] == 'red'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[4] == 'lower_tail_pole_umbong') & bool(df.color[4] == 'red'):
+            result = True
+        elif bool(status == 'up') & (bool(df.chart_name[3] in ['doji_cross', 'rickshawen_doji']) | bool(
+                df.chart_name[4] in ['doji_cross', 'rickshawen_doji'])):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[3] == 'shortbody_yangbong') & bool(
+                df.chart_name[4] == 'longbody_yangbong'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[2] == 'upper_tail_pole_umbong') & bool(
+                df.chart_name[3] == 'longbody_umbong') & bool(df.chart_name[4] == 'lower_tail_pole_umbong'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[3] == 'longbody_yangbong') & bool(
+                df.chart_name[4] == 'doji_corss'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[3] == 'longbody_yangbong') & bool(
+                df.chart_name[4] == 'upper_tail_pole_umbong'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[2] == 'longbody_yangbong') & bool(
+                df.chart_name[3] == 'longbody_umbong') & bool(df.chart_name[4] == 'shortbody_umbong'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[2] == 'longbody_yangbong') & bool(
+                df.chart_name[3] == 'shortbody_umbong') & bool(df.chart_name[4] == 'longbody_umbong'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[3] == 'longbody_yangbong') & bool(
+                df.chart_name[4] == 'longbody_umbong'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[3] == 'longbody_yangbong') & bool(
+                df.chart_name[4] == 'longbody_umbong'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[2] == 'longbody_yangbong') & bool(
+                df.chart_name[3] == 'shortbody_yangbong') & bool(df.chart_name[4] == 'longbody_umbong'):
+            result = True
+        #########################################
+        elif bool(status == 'up') & bool(df.chart_name[2] == 'longbody_yangbong') & bool(
+                df.chart_name[3] == 'doji_corss') & bool(df.chart_name[4] == 'longbody_pole_umbong'):
+            result = True
+        elif bool(status == 'up') & bool(df.chart_name[2] == 'shortbody_yangbong') & bool(
+                df.chart_name[3] == 'doji_corss') & bool(df.chart_name[4] == 'shortbody_umbong'):
+            result = True
+        elif bool(np.sum(df.color == 'red') >= 3) & bool(
+                df.chart_name[idx - 1] in ['stone_cross', 'lower_tail_pole_umbong', 'upper_tail_pole_umbong']):
+            result = True
+        elif bool(np.sum(df.color == 'red') >= 3) & bool(
+                df.chart_name[idx - 2] in ['longbody_yangbong', 'shortbody_yangbong']):
+            result = True
+        elif bool(np.sum(df.color == 'red') >= 3) & bool(df.chart_name[idx - 1] in ['spinning_tops', 'doji_cross']):
+            result = True
+        return result
+    def criteria_updown(self,df):
+        res = []
+        if len(df) == 1:
+            close_rate = 0
+            open_rate = 0
+            volume_rate = 0
+        else:
+            for i in range(len(df) - 1):
+                a = df[i:i + 2].reset_index(drop=True)
+                a.reset_index(drop=True, inplace=True)
+                close_rate = df.close[1] / df.close[0]
+                open_rate = df.open[1] / df.open[0]
+                volume_rate = df.volume[1] / df.volume[0]
+                if open_rate < 1:
+                    open_status = 'down'
+                elif open_rate > 1:
+                    open_status = 'up'
+                else:
+                    open_status = 'normal'
+                if volume_rate < 1:
+                    volume_status = 'down'
+                elif volume_rate > 1:
+                    volume_status = 'up'
+                else:
+                    volume_status = 'normal'
+                result = {'volume_status': volume_status, 'volume_rate': volume_rate, 'close_rate': close_rate,
+                          'open_status': open_status}
+                res.append(result)
+        t = pd.DataFrame(res).reset_index(drop=True)
+        return t
+    def coin_predict(self, res):
+        df = res[-5:]
+        df.reset_index(inplace=True, drop=True)
+        default = df[-1:].reset_index()
+        v = list(df.rate_volume)
+        influence_v = 0
+        if bool(v.index(max(v)) in [3, 4]):
+            influence_v = 1
+
+        min_buy_price = min(df.open[0], df.close[0]) - 1.96 * np.std(df.length_low[0])
+        max_buy_price = min(df.open[0], df.close[0]) + 1.96 * np.std(df.length_low[0])
+        max_sell_price = max(df.open[0], df.close[0]) - 1.96 * np.std(df.length_low[0])
+
+        min_sell_price = max(df.open[0], df.close[0]) - 1.96 * np.std(df.length_low[0])
+        min_sell_price = max(min_sell_price, min_buy_price)
+        remain_price = (min_sell_price - min_buy_price) / min_buy_price
+
+        check_buy = self.check_buy_case(df)
+        check_sell = self.check_sell_case(df)
+        # 상태
+        result = {'remain_price': remain_price, 'influence_v': influence_v, 'check_buy': check_buy,
+                  'check_sell': check_sell,
+                  'min_buy_price': min_buy_price, 'min_sell_price': min_sell_price,
+                  'max_buy_price': max_buy_price, 'max_sell_price': max_sell_price}
+        return result
+    def period_end_date(self):
+        start_time = datetime.now()
+        intervals = self.interval
+        if intervals == "month":
+            end_time = start_time + timedelta(days=30)
+        elif intervals == "days":
+            end_time = start_time + timedelta(days=1)
+        elif intervals == "minute240":
+            end_time = start_time + timedelta(hours=4)
+        elif intervals == "minute60":
+            end_time = start_time + timedelta(hours=1)
+        elif intervals == "minute30":
+            end_time = start_time + timedelta(minutes=30)
+        elif intervals == "minute10":
+            end_time = start_time + timedelta(minutes=10)
+        elif intervals == "minute5":
+            end_time = start_time + timedelta(minutes=5)
+        elif intervals == "minute3":
+            end_time = start_time + timedelta(minutes=3)
+        elif intervals == "minute1":
+            end_time = start_time + timedelta(minutes=1)
+        else:
+            end_time = start_time + timedelta(minutes=1)
+        result = end_time
+        return result
+    def chart_name(self,df_1):
+        type = df_1.color[0]
+        high = df_1.length_high[0]
+        middle = df_1.length_mid[0]
+        low = df_1.length_low[0]
+        if bool(type == 'red') & bool(0 < high * 3 < middle) & bool(0 < low * 3 < middle):  # 롱바디 양봉
+            result = 'longbody_yangbong'
+        elif bool(type == 'blue') & bool(0 < high * 3 < middle) & bool(0 < low * 3 < middle):  # 롱바디 음봉
+            result = 'longbody_umbong'
+        elif bool(type == 'red') & bool(0 < high * 1.2 < middle) & bool(0 < low * 1.2 < middle):  # 숏바디 양봉
+            result = 'shortbody_yangbong'
+        elif bool(type == 'blue') & bool(0 < high * 1.2 < middle) & bool(0 < low * 1.2 < middle):  # 숏바디 음봉
+            result = 'shortbody_umbong'
+        elif bool(type == 'blue') & bool(0 <= middle * 5 < high) & bool(0 < middle * 1.2 < low):  # 도지 십자
+            result = 'doji_cross'
+        elif bool(type == 'red') & bool(0 <= middle * 5 < high) & bool(0 < middle * 1.2 < low):  # 릭쇼멘 도지
+            result = 'rickshawen_doji'
+        elif bool(type == 'blue') & bool(0 < middle * 5 < high) & bool(low == 0):  # 비석형 십자
+            result = 'stone_cross'
+        elif bool(type == 'red') & bool(0 < middle * 5 < low) & bool(high == 0):  # 잠자리형 십자
+            result = 'dragonfly_cross'
+        elif bool(type == 'red') & bool(high == 0) & bool(low == 0) & bool(middle == 0):  #:포 프라이스 도지
+            result = 'four_price_doji'
+        elif bool(type == 'red') & bool(high == 0) & bool(low == 0) & bool(middle > 0):  # 장대양봉
+            result = 'pole_yangbong'
+        elif bool(type == 'blue') & bool(high == 0) & bool(low == 0) & bool(middle > 0):  # 장대음봉
+            result = 'pole_umbong'
+        elif bool(type == 'red') & bool(high > 0) & bool(low == 0) & bool(middle > 0):  # 윗꼬리 장대양봉
+            result = 'upper_tail_pole_yangong'
+        elif bool(type == 'blue') & bool(high == 0) & bool(low > 0) & bool(middle > 0):  # 아랫꼬리 장대음봉
+            result = 'lower_tail_pole_umbong'
+        elif bool(type == 'red') & bool(high == 0) & bool(low > 0) & bool(middle > 0):  # 아랫꼬리 장대양봉
+            result = 'lower_tail_pole_yangbong'
+        elif bool(type == 'blue') & bool(high > 0) & bool(low == 0) & bool(middle > 0):  # 윗꼬리 장대음봉
+            result = 'upper_tail_pole_umbong'
+        elif bool(type == 'blue') & bool(middle * 5 < high) & bool(middle * 5 < low) & bool(middle > 0):  # 스피닝 탑스
+            result = 'spinning_tops'
+        elif bool(type == 'blue') & bool(0 < high <= middle) & bool(0 < low <= middle):  # 별형 스타
+            result = 'start'
+        elif bool(type == 'blue') & bool(high > middle) & bool(low == 0) & bool(low < middle):  # 역망치 스타
+            result = 'shooting_star'
+        else:
+            result = 'need to name'
+        return result
+    def box_create(self,df_1):
+        df_1 = df_1.reset_index(drop=True)
+        if bool(df_1.open[0] <= df_1.close[0]):
+            df_1['color'] = 'red'
+        else:
+            df_1['color'] = 'blue'
+        df_1['length_high'] = df_1.high[0] - max(df_1.close[0], df_1.open[0])
+        df_1['length_low'] = min(df_1.close[0], df_1.open[0]) - df_1.low[0]
+        df_1['length_mid'] = max(df_1.close[0], df_1.open[0]) - min(df_1.close[0], df_1.open[0])
+        df_1['rate_mid'] = np.abs(df_1.close[0] - df_1.open[0]) / (df_1.open[0] + df_1.close[0]) * 2
+        df_1['rate_high'] = df_1['length_high'] / (max(df_1.close[0], df_1.open[0]) + df_1.high[0]) * 2
+        df_1['rate_low'] = df_1['length_low'] / (min(df_1.close[0], df_1.open[0]) + df_1.low[0]) * 2
+        name = self.chart_name(df_1)
+        df_1['chart_name'] = name
+        return df_1
+    def box_vervus(self,default_res):
+        default_df = default_res[-6:]
+        v = []
+        for i in range(len(default_df) - 1):
+            ddf = default_df[i:i + 2].reset_index(drop=True)
+            odds_volume = ddf.volume[1] / ddf.volume[0]
+            v.append(odds_volume)
+        odds_volume = pd.DataFrame(v, columns=['rate_volume'])
+        res = pd.concat([default_df[-5:].reset_index(drop=True), odds_volume.reset_index(drop=True)], axis=1)
+        result = self.coin_predict(res)
+        return result
+    def box_information(self):
+        df = self.df
+        default_res = []
+        for i in range(len(df)):
+            df_1 = df[i:i + 1]
+            if i == 0:
+                default_res = self.box_create(df_1)
+            else:
+                next_res = self.box_create(df_1)
+                default_res = pd.concat([default_res, next_res], axis=0)
+                default_res.reset_index(drop=True, inplace=True)
+        result = self.box_vervus(default_res)
+        return result
+class coin_sell:
+    def __init__(self, upbit):
+        self.directory = 'sell_list'
+        self.name = 'sell_list.json'
+        self.upbit = upbit
+        self.my_coin = coin_common().my_coin(upbit)
+        self.cutoff = -0.01
+
+    def cancel(self):
+        coin_common().reservation_cancel(self.upbit, self.directory, self.name)
+
+    def f_balance(self):
+        coin_name = self.coin_name
+        my_coin = self.my_coin
+        df = self.my_coin[self.my_coin.coin_name == coin_name].reset_index(drop=True)
+        avg_price = df['avg_buy_price'].astype(float)
+        self.current_price = pyupbit.get_current_price(coin_name)
+        self.ratio = (self.current_price - avg_price) / avg_price
+        self.balance = df['balance'].astype(float)
+
+    def selling(self, coin_name, point):
+        self.coin_name = coin_name
+        self.point = point
+        self.f_balance()
+        self.price()
+        self.execute()
+
+    def price(self):
+        # input : coint_name
+        coin_name = self.coin_name
+        orderbook = pyupbit.get_orderbook(coin_name)
+        df_orderbook = pd.DataFrame(orderbook[0]['orderbook_units'])
+        df_orderbook['cum_ask_size'] = df_orderbook['ask_size'].apply(lambda x: float(np.cumsum(x)))
+        df_orderbook['cum_bid_size'] = df_orderbook['bid_size'].apply(lambda x: float(np.cumsum(x)))
+
+        # 매수 > 매도의 가격을 측정
+        df_orderbook['selling_YN'] = df_orderbook.apply(lambda x: x.cum_ask_size > x.cum_bid_size, axis='columns')
+        check = [i for i, value in enumerate(list(df_orderbook.selling_YN)) if value == False]
+        no = max(min(check),self.point)
+        self.price = df_orderbook.ask_price[max(no - 1, 0)]
+
+    def execute(self):
+        upbit = self.upbit
+        coin_name = self.coin_name
+        price = self.price
+        count = self.balance
         try:
             res = upbit.sell_limit_order(coin_name, price, count)
-            time.sleep(0.5)
+            time.sleep(0.3)
             if len(res) > 2:
-                ratio = (price - avg_price) / avg_price
-                print("매도 요청("+type+"): " + coin_name + ", 현재가: " + str(current_price) + ", 손익률: " + str(
-                    round(ratio * 100, 2))+", 손실률: -" + str(round(cutoff*100,2)) + "%, 구매가격: " + str(price))
-                uuid = res.get('uuid')
-                save_uuid(uuid)
-                time.sleep(0.5)
+                print("***판매 요청 정보***")
+                print("코인: "+coin_name + "/ 가격: " + str(price) + "/ 수량: " + str(count))
+                uuid = list()
+                uuid.append(res.get('uuid'))
+                result = pd.DataFrame(uuid, columns=['uuid'])
+                coin_common().merge_df(result, self.directory, self.name)
         except:
-            pass
-    else:
-        print("판매 실패: "+coin_name +"은 판매 최소금액이 부족")
-def execute_sell_schedule(upbit, cutoff, benefit):
-    while True:
-        st = time.time()
-        diff = 0
-        buy_df = []
-        sell_df = []
-        reservation_cancel(upbit)
-        while diff < 10:
-            tot_df = []
-            while len(tot_df) == 0:
-                tot_df = load_df()
-
-            now = datetime.now()
-            tot_df = tot_df[tot_df.start_date_bid <= now]
-            tot_df = tot_df[tot_df.end_date_bid >= now]
-            sell_df = tot_df[tot_df.check_sell]
-            buy_df = tot_df[tot_df.check_buy]
-            sell_df.reset_index(drop=True, inplace=True)
-            buy_df.reset_index(drop=True, inplace=True)
-            my_coin = pd.DataFrame(upbit.get_balances())
-
-            my_coin['coin_name'] = my_coin.unit_currency +'-'+my_coin.currency
-            my_coin['buy_price'] = pd.to_numeric(my_coin.balance, errors='coerce') * pd.to_numeric(my_coin.avg_buy_price, errors='coerce')
-            KRW = float(my_coin[0:1].balance)
-            tot_investment = round(KRW + sum(my_coin['buy_price']),0)
-
-            my_coin = my_coin[pd.to_numeric(my_coin.avg_buy_price) > 0]
-            my_coin = my_coin[my_coin.buy_price > 5000]
-            my_coin.sort_values('buy_price', ascending=False, inplace=True)
-            my_coin.reset_index(drop=True, inplace=True)
-            price_cutoff = np.mean(sell_df.price_changed_ratio)
-            if price_cutoff > 0:
-                price_cutoff = -0.005
-            remove_tickers = list(set(buy_df.coin_name))
-            predict_tickers = list(sell_df.coin_name)  # target price
-            my_tickers = list(my_coin.coin_name)
-
-            up_count = np.sum(sell_df.price_changed_ratio > 0)
-            up_rate = round(up_count / len(tot_df), 2)
-            time.sleep(0.5)
-
-            print("********** 판매 정보 ********** ")
-            print("총투자금액: " + str(tot_investment) + "원, 개수: " + str(len(sell_df)) + "개, 상승률: " + str(
-                round(up_rate * 100, 2)) + "%, 입력수익률 : " + str(round(benefit * 100, 2)) + "%, 입력손절률: -" + str(
-                round(cutoff * 100, 2)) + "%")
-
-            for coin_name in my_tickers:
-                #coin_name = my_tickers[0]
-                if coin_name in remove_tickers:
-                    print("구매 코인과 중복: "+ coin_name)
-                else:
-                    df = my_coin[my_coin.coin_name == coin_name].reset_index(drop=True)
-                    balance = float(df.balance[0])
-                    avg_price = float(df.avg_buy_price)
-                    current_price = pyupbit.get_current_price(coin_name)
-                    time.sleep(0.3)
-                    ratio = (current_price - avg_price) / avg_price
-                    hoga = get_hoga_price(coin_name)
-                    price = avg_price
-                    min_benefit = benefit + (up_rate * benefit)
-                    margin_benefit = np.mean(tot_df[tot_df.coin_name == coin_name].remain_price)
-                    influence = tot_df[tot_df.coin_name == coin_name].influence_v
-                    weight = influence
-                    new_balance = balance * max((1 - up_rate),0.3)
-                    if price * new_balance < 5000:
-                        new_balance = balance * 0.7
-                    else:
-                        new_balance = balance
-
-                    if coin_name in predict_tickers:
-                        sdf = sell_df[sell_df.coin_name == coin_name].reset_index(drop=True)
-                        weight = sdf.price_changed_ratio[0] * weight
-                        sell_price = np.mean(sdf.min_sell_price) - 1.96 * np.std(sdf.min_sell_price)/np.sqrt(len(sdf.min_sell_price))
-                        #sell_price = sdf.min_sell_price
-                        price = max(avg_price, sell_price)
-                        min_benefit = min_benefit + min_benefit * sdf.price_changed_ratio[0]
-
-                    price = price * (1 + min_benefit)
-
-                    min_cutoff = max(min(-cutoff, price_cutoff), -0.1)
-
-                    if ratio < min_cutoff:
-                        type = '손절'
-                        price = current_price
-                        execute_sell(upbit, type, balance, coin_name, avg_price, current_price, price)
-
-                    elif ratio > min_benefit:
-                        type = '익절'
-                        if np.sum(hoga.get('ask_price') > price) >= 1:
-                            price = min(hoga.get('ask_price')[hoga.get('ask_price') > price])
-                        elif np.sum(hoga.get('bid_price') > price) >= 1:
-                            price = hoga.get('bid_price')[0]
-                        else:
-                            price = current_price
-
-                        execute_sell(upbit, type, balance, coin_name, avg_price, current_price, price)
-
-                    else:
-                        type = '대기'
-                        price = 0
-                        pass
-                    print("상태 : "+ type + ", "+ coin_name + ", 현재가: " + str(current_price) +"("+str(round(ratio*100,2))+"%), 목표률: "+str(round(min_benefit*100,2)) +"%, 손절률: " + str(round(min_cutoff * 100, 2))+"%")
-                    et = time.time()
-                    diff = et-st
-
-def excute_buy(upbit, df, coin_name, investment):
-    if len(df) == 0:
-        print("데이터가 없습니다.")
-    else:
-        for i in range(len(df)):
-            df = df[i : i + 1].reset_index(drop=True)
-            status = 'wait'
-            temp_price = df.max_buy_price[0]
-            money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
-            time.sleep(0.5)
-            # 구매 가격 결정하기
-            if money < max(5000, investment):
-                print("주문금액 부족")
-            else:
-                last_investment = min(investment, money)
-                hoga = get_hoga_price(coin_name)
-                criteria = max(hoga.get('ask_price')) > temp_price > min(hoga.get('bid_price'))
-                if not criteria:
-                    print("************************************")#print(coin_name + "은 구매 계획에 도달하지 않았다.")
-                else:
-                    price_set = list(hoga.get('bid_price')[0:3])
-                    print(coin_name+" 구매 호가: "+ str(price_set))
-                    for price in price_set:
-                        count = investment / price
-                        try:
-                            res = upbit.buy_limit_order(coin_name, price, count)
-                            time.sleep(1)
-                            if len(res) > 2:
-                                print("구매 성공: " + coin_name + "/ " + str(price))
-                                save_uuid(res.get('uuid'))
-                            else:
-                                pass
-                        except:
-                            pass
-def execute_buy_schedule(upbit, investment):
-    while True:
-        st = time.time()
-        diff = 0
-
-        reservation_cancel(upbit)
-        while diff < 10:
-            money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
-            time.sleep(0.5)
-            buy_df = []
-            if money <= max(5000, investment):
-                print("주문금액 부족")
-            else:
-                while len(buy_df) == 0:
-                    try:
-                        buy_df = load_df()
-                    except:
-                        pass
-                now = datetime.now()
-                buy_df = buy_df[buy_df.check_buy]
-                buy_df = buy_df[buy_df.start_date_ask <= now]
-                buy_df = buy_df[buy_df.end_date_ask >= now]
-               # buy_df = buy_df[buy_df.price_changed_ratio > 0]
-                buy_df.reset_index(drop = True, inplace =True)
-                buy_df.sort_values('price_changed_ratio', inplace=True, ascending = False)
-                first_res = []
-                tickers = list(set(buy_df.coin_name)) # 구매신청
-                if len(buy_df) > 0:
-                    for coin_name in tickers:
-                        coin_name = tickers[0]
-                        df = buy_df[buy_df.coin_name == coin_name]
-                        df.reset_index(drop=True, inplace=True)
-                        try:
-                            excute_buy(upbit, df, coin_name, investment)
-                        except:
-                            pass
-                        time.sleep(0.1)
-            et = time.time()
-            diff = et - st
-
-##################################### data generate
-def check_buy_case(df):
-    idx = len(df)
-    updown = criteria_updown(df)
-
-    if bool(np.sum(updown.volume_status == 'down') >= 3) & bool(np.sum(updown.volume_status == 'down') >= 3):
-        status = 'down'
-    elif bool(np.sum(updown.volume_status == 'up') >= 3) & bool(np.sum(updown.volume_status == 'up') >= 3):
-        status = 'up'
-
-    result = False
-    if bool(status == 'down') & bool(df.chart_name[4] == 'shooting_star'):
-        result = True
-    elif bool(status =='down') & bool(df.chart_name[4] == 'upper_tail_pole_yangong'):
-        result = True
-    elif bool(status =='down') & bool(df.chart_name[2] == 'lower_tail_pole_yangong') & bool(
-            df.chart_name[3] == 'upper_tail_pole_yangong') & bool(df.chart_name[4] == 'lower_tail_pole_yangong'):
-        result = True
-    elif bool(df.chart_name[3]=='longbody_umbong') & bool(df.chart_name[4] == 'shortbody_yangbong'):
-        result = True
-    elif bool(status == 'down') & bool(df.chart_name[3] == 'longbody_umbong') & bool(df.chart_name[4] in ['shortbody_yangbong','rickshawen_doji', 'longbody_yangbong']):
-        result = True
-    elif bool(status == 'down') & bool(df.chart_name[3] == 'longbody_umbong') & bool(
-            df.chart_name[4] in ['longbody_yangbong', 'rickshawen_doji']):
-        result = True
-    elif bool(status == 'down') & bool(df.chart_name[2] == 'longbody_umbong') & bool(df.chart_name[3] == 'shortbody_yangbong') & bool(
-            df.chart_name[4] == 'longbody_yangbong'):
-        result = True
-    elif bool(status == 'down') & bool(df.chart_name[2] == 'longbody_umbong') & bool(df.chart_name[3] == 'doji_cross') & bool(
-            df.chart_name[4] == 'longbody_yangbong'):
-        result = True
-    elif bool(status == 'down') & bool(df.chart_name[2] == 'longbody_umbong') & bool(df.chart_name[3] == 'longbody_yangbong') & bool(
-            df.chart_name[4] == 'shortbody_yangbong'):
-        result = True
-    elif bool(status == 'down') & bool(df.chart_name[2] == 'longbody_umbong') & bool(
-            df.chart_name[3] == 'longbody_yangbong') & bool(
-            df.chart_name[4] == 'shortbody_yangbong'):
-        result = True
-    elif bool(status == 'down') & bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[3] == 'shooting_star') & bool(df.chart_name[4] == 'longbody_yangbong'):
-        result = True
-    elif bool(status == 'down') & bool(df.chart_name[3] == 'shooting_star') & bool(df.chart_name[4] == 'pole_yangbong'):
-        result = True
-    elif bool(status == 'down') & bool(df.chart_name[3] == 'longbody_umbong') & bool(df.chart_name[4] in ['longbody_yangbong', 'shortbody_yangbong']):
-        result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[4] in ['stone_cross','lower_tail_pole_umbong']):
-        result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[4] in ['dragonfly_cross', 'upper_tail_pole_yangong']):
-        result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(np.sum(df.chart_name == 'pole_umbong')>=2) & bool(df.chart_name[4] in ['shooting_star','upper_tail_pole_umbong']) :
-        result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[4] in ['doji_cross', 'spinning_tops']):
-        result = True
-    elif bool(status == 'down') & bool(np.sum(df.chart_name == 'longbody_umbong')>=2) & bool(np.sum(df.chart_name == 'longbody_yangbong')>=1) & bool(df.chart_name[4] in ['longbody_umbong']):
-        result = True
-    elif bool(status == 'down') & bool(np.sum(df.chart_name == 'longbody_umbong')>=2) & bool(np.sum(df.chart_name == 'shortbody_umbong')>=1):
-        result = True
-    elif bool(status == 'down') & bool(np.sum(df.chart_name == 'longbody_umbong')>=2) & bool(np.sum(df.chart_name[4] in ['shooting_star','lower_tail_pole_umbong'])>=1):
-        result = True
-    return result
-
-def check_sell_case(df):
-    idx = len(df)
-    updown = criteria_updown(df)
-    result = False
-    if bool(np.sum(updown.volume_status == 'down') >= 3) & bool(np.sum(updown.volume_status == 'down') >= 3):
-        status = 'down'
-    elif bool(np.sum(updown.volume_status == 'up') >= 3) & bool(np.sum(updown.volume_status == 'up') >= 3):
-        status = 'up'
-    ####################################################
-    #### 하락 반전형 캔들
-    ## 유성형
-    if bool(status == 'up') & bool(df.chart_name[4] == 'upper_tail_pole_yangong') & bool(df.color[4] == 'blue'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[4] == 'lower_tail_pole_yangbong') & bool(df.color[4] == 'red'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[4] == 'lower_tail_pole_umbong') & bool(df.color[4] == 'red'):
-        result = True
-    elif bool(status == 'up') & (bool(df.chart_name[3] in ['doji_cross', 'rickshawen_doji']) | bool(df.chart_name[4] in ['doji_cross', 'rickshawen_doji'])):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[3] == 'shortbody_yangbong') & bool(df.chart_name[4] == 'longbody_yangbong'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[2] == 'upper_tail_pole_umbong') & bool(df.chart_name[3] == 'longbody_umbong') & bool(df.chart_name[4]=='lower_tail_pole_umbong'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[3] == 'longbody_yangbong') & bool(df.chart_name[4] == 'doji_corss'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[3] == 'longbody_yangbong') & bool(df.chart_name[4] == 'upper_tail_pole_umbong'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[2] == 'longbody_yangbong') & bool(df.chart_name[3] == 'longbody_umbong') & bool(df.chart_name[4] == 'shortbody_umbong'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[2] == 'longbody_yangbong') & bool(df.chart_name[3] == 'shortbody_umbong') & bool(df.chart_name[4] == 'longbody_umbong'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[3] == 'longbody_yangbong') & bool(df.chart_name[4] == 'longbody_umbong'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[3] == 'longbody_yangbong') & bool(df.chart_name[4] == 'longbody_umbong'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[2] == 'longbody_yangbong') & bool(df.chart_name[3] == 'shortbody_yangbong') & bool(df.chart_name[4] == 'longbody_umbong'):
-        result = True
-#########################################
-    elif bool(status == 'up') & bool(df.chart_name[2] == 'longbody_yangbong') & bool(df.chart_name[3] == 'doji_corss') & bool(df.chart_name[4] == 'longbody_pole_umbong'):
-        result = True
-    elif bool(status == 'up') & bool(df.chart_name[2] == 'shortbody_yangbong') & bool(df.chart_name[3] == 'doji_corss') & bool(df.chart_name[4] == 'shortbody_umbong'):
-        result = True
-    elif bool(np.sum(df.color == 'red') >= 3) & bool(df.chart_name[idx-1] in ['stone_cross', 'lower_tail_pole_umbong', 'upper_tail_pole_umbong']):
-        result = True
-    elif bool(np.sum(df.color == 'red') >= 3) & bool(df.chart_name[idx-2] in ['longbody_yangbong', 'shortbody_yangbong']):
-        result = True
-    elif bool(np.sum(df.color == 'red') >= 3) & bool(df.chart_name[idx-1] in ['spinning_tops', 'doji_cross']):
-        result = True
-    return result
-
-def criteria_updown(df):
-    res = []
-    if len(df) == 1:
-        close_rate = 0
-        open_rate = 0
-        volume_rate = 0
-    else:
-        for i in range(len(df)-1):
-            a = df[i:i+2].reset_index(drop=True)
-            a.reset_index(drop=True, inplace=True)
-            close_rate = df.close[1] / df.close[0]
-            open_rate = df.open[1] / df.open[0]
-            volume_rate = df.volume[1] / df.volume[0]
-            if open_rate < 1:
-                open_status = 'down'
-            elif open_rate > 1:
-                open_status = 'up'
-            else:
-                open_status = 'normal'
-            if volume_rate < 1:
-                volume_status = 'down'
-            elif volume_rate > 1:
-                volume_status = 'up'
-            else:
-                volume_status = 'normal'
-            result = {'volume_status':volume_status, 'volume_rate':volume_rate, 'close_rate':close_rate, 'open_status':open_status}
-            res.append(result)
-    t = pd.DataFrame(res).reset_index(drop=True)
-    return t
-
-def coin_predict(res, benefit):
-    df = res[-5:]
-    df.reset_index(inplace=True, drop = True)
-    default = df[-1:].reset_index()
-    v = list(df.rate_volume)
-    influence_v = 0
-    if bool(v.index(max(v)) in [3,4]):
-        influence_v = 1
-
-    min_buy_price = min(df.open[0], df.close[0]) - 1.96 * np.std(df.length_low[0])
-    max_buy_price = min(df.open[0], df.close[0]) + 1.96 * np.std(df.length_low[0])
-    max_sell_price = max(df.open[0], df.close[0]) - 1.96 * np.std(df.length_low[0])
-
-    min_sell_price = max(df.open[0], df.close[0]) - 1.96 * np.std(df.length_low[0])
-    min_sell_price = max(min_sell_price, min_buy_price * (1+benefit))
-    remain_price = (min_sell_price - min_buy_price) / min_buy_price
-
-    check_buy = check_buy_case(df)
-    check_sell = check_sell_case(df)
-    # 상태
-    result = {'remain_price': remain_price, 'influence_v': influence_v, 'check_buy': check_buy, 'check_sell': check_sell,
-              'min_buy_price': min_buy_price, 'min_sell_price': min_sell_price,
-              'max_buy_price': max_buy_price,  'max_sell_price': max_sell_price}
-    return result
-def period_end_date(intervals):
-    start_time = datetime.now()
-    if intervals == "month":
-        end_time = start_time + timedelta(days=30)
-    elif intervals == "days":
-        end_time = start_time + timedelta(days=1)
-    elif intervals == "minute240":
-        end_time = start_time + timedelta(hours=4)
-    elif intervals == "minute60":
-        end_time = start_time + timedelta(hours=1)
-    elif intervals == "minute30":
-        end_time = start_time + timedelta(minutes=30)
-    elif intervals == "minute10":
-        end_time = start_time + timedelta(minutes=10)
-    elif intervals == "minute5":
-        end_time = start_time + timedelta(minutes=5)
-    elif intervals == "minute3":
-        end_time = start_time + timedelta(minutes=3)
-    elif intervals == "minute1":
-        end_time = start_time + timedelta(minutes=1)
-    else:
-        end_time = start_time + timedelta(minutes=1)
-    result = end_time
-    return result
-
-def chart_name(df_1):
-    type = df_1.color[0]
-    high = df_1.length_high[0]
-    middle = df_1.length_mid[0]
-    low = df_1.length_low[0]
-    if bool(type == 'red') & bool(0 < high * 3 < middle) & bool(0 < low * 3 < middle): # 롱바디 양봉
-        result = 'longbody_yangbong'
-    elif bool(type == 'blue') & bool(0 < high * 3 < middle) & bool(0 < low * 3 < middle):# 롱바디 음봉
-        result = 'longbody_umbong'
-    elif bool(type == 'red') & bool(0 < high * 1.2 < middle) & bool(0 < low * 1.2 < middle):#숏바디 양봉
-        result = 'shortbody_yangbong'
-    elif bool(type == 'blue') & bool(0 < high * 1.2 < middle) & bool(0 < low * 1.2 < middle):#숏바디 음봉
-        result = 'shortbody_umbong'
-    elif bool(type == 'blue') & bool(0 <= middle * 5 < high) & bool(0 < middle * 1.2 < low):#도지 십자
-        result = 'doji_cross'
-    elif bool(type == 'red') & bool(0 <= middle * 5 < high) & bool(0 < middle * 1.2 < low):#릭쇼멘 도지
-        result = 'rickshawen_doji'
-    elif bool(type == 'blue') & bool(0 < middle * 5 < high) & bool(low == 0):#비석형 십자
-        result = 'stone_cross'
-    elif bool(type == 'red') & bool(0 < middle * 5 < low) & bool(high == 0):# 잠자리형 십자
-        result = 'dragonfly_cross'
-    elif bool(type == 'red') & bool(high == 0) & bool(low == 0) & bool(middle == 0): #:포 프라이스 도지
-        result = 'four_price_doji'
-    elif bool(type == 'red') & bool(high == 0) & bool(low == 0) & bool(middle > 0): #장대양봉
-        result = 'pole_yangbong'
-    elif bool(type == 'blue') & bool(high == 0) & bool(low == 0) & bool(middle > 0): #장대음봉
-        result = 'pole_umbong'
-    elif bool(type == 'red') & bool(high > 0) & bool(low == 0) & bool(middle > 0): #윗꼬리 장대양봉
-        result = 'upper_tail_pole_yangong'
-    elif bool(type == 'blue') & bool(high == 0) & bool(low > 0) & bool(middle > 0):#아랫꼬리 장대음봉
-        result = 'lower_tail_pole_umbong'
-    elif bool(type == 'red') & bool(high == 0) & bool(low > 0) & bool(middle > 0):#아랫꼬리 장대양봉
-        result = 'lower_tail_pole_yangbong'
-    elif bool(type == 'blue') & bool(high > 0) & bool(low == 0) & bool(middle > 0):#윗꼬리 장대음봉
-        result = 'upper_tail_pole_umbong'
-    elif bool(type == 'blue') & bool(middle * 5 < high) & bool(middle * 5 < low) & bool(middle>0):# 스피닝 탑스
-        result = 'spinning_tops'
-    elif bool(type == 'blue') & bool(0 < high <= middle) & bool(0 < low <= middle):# 별형 스타
-        result = 'start'
-    elif bool(type == 'blue') & bool(high > middle) & bool(low == 0) & bool(low < middle):  # 역망치 스타
-        result = 'shooting_star'
-    else:
-        result = 'need to name'
-    return result
-
-def box_create(df_1) :
-    df_1 = df_1.reset_index(drop=True)
-    if bool(df_1.open[0] <= df_1.close[0]):
-        df_1['color'] = 'red'
-    else:
-        df_1['color'] = 'blue'
-    df_1['length_high'] = df_1.high[0] - max(df_1.close[0], df_1.open[0])
-    df_1['length_low'] = min(df_1.close[0], df_1.open[0]) - df_1.low[0]
-    df_1['length_mid'] = max(df_1.close[0], df_1.open[0]) - min(df_1.close[0], df_1.open[0])
-    df_1['rate_mid'] = np.abs(df_1.close[0] - df_1.open[0]) / (df_1.open[0] + df_1.close[0]) * 2
-    df_1['rate_high'] = df_1['length_high'] / (max(df_1.close[0], df_1.open[0]) + df_1.high[0]) * 2
-    df_1['rate_low'] = df_1['length_low'] / (min(df_1.close[0], df_1.open[0]) + df_1.low[0]) * 2
-    name = chart_name(df_1)
-    df_1['chart_name'] = name
-    return df_1
-
-def box_vervus(default_res,benefit):
-    default_df = default_res[-6:]
-    v = []
-    for i in range(len(default_df)-1):
-        ddf = default_df[i:i+2].reset_index(drop=True)
-        odds_volume = ddf.volume[1]/ddf.volume[0]
-        v.append(odds_volume)
-    odds_volume = pd.DataFrame(v, columns = ['rate_volume'])
-    res = pd.concat([default_df[-5:].reset_index(drop=True), odds_volume.reset_index(drop=True)], axis=1)
-    result = coin_predict(res, benefit)
-    return result
-
-def box_information(df,benefit):
-    default_res = []
-    for i in range(len(df)):
-        df_1 = df[i:i+1]
-        if i == 0:
-            default_res = box_create(df_1)
-        else:
-            next_res = box_create(df_1)
-            default_res = pd.concat([default_res, next_res], axis=0)
-            default_res.reset_index(drop=True, inplace=True)
-    result = box_vervus(default_res, benefit)
-    return result
-
-def changed_ratio(df, price_currency):
-    if len(df)>0:
-        df_1 = df[-2:].reset_index(drop=True)
-        changed_ratio0 = (df_1.close[0] - df_1.open[0]) / df_1.open[0]
-        changed_ratio1 = (df_1.close[1] - df_1.open[1]) / df_1.open[1]
-        result = changed_ratio0 - changed_ratio1
-    return result
-def coin_information(coin_name, interval, benefit):
-    #coin_name = tickers[1]
-    price_currency = pyupbit.get_current_price(coin_name)
-    df = pyupbit.get_ohlcv(coin_name, interval=interval, count=10)
-    time.sleep(0.2)
-    price_changed_ratio = changed_ratio(df, price_currency) # changed_ratio
-    box = box_information(df, benefit) ### criteria_boxplot
-    start_date_ask = datetime.now()
-    end_date_ask = period_end_date(interval)
-    start_date_bid = end_date_ask + timedelta(seconds=1)
-    end_date_bid = start_date_bid + (end_date_ask - start_date_ask)
-    box['start_date_ask'] = start_date_ask
-    box['end_date_ask'] = end_date_ask
-    box['start_date_bid'] = start_date_bid
-    box['end_date_bid'] = end_date_bid
-    box['price_changed_ratio'] = price_changed_ratio
-    box['interval'] = interval
-    box['coin_name'] = coin_name
-    result = box
-    return result
-def coin_information_interval(tickers, interval,benefit):
-    li = []
-    tickers = list(set(tickers))
-    for coin_name in tickers:
-        #coin_name = tickers[1]
-        res = coin_information(coin_name, interval, benefit)
-        li.append(res)
-    df = pd.DataFrame(li)
-    result = df
-    return result
-def coin_validation(upbit, interval, benefit):
-    try:
-        tickrs_df = load_df()
-        if len(tickrs_df[tickrs_df.check_buy]) == 0:
-            tickers = pyupbit.get_tickers(fiat="KRW")
-        else:
-            tickers = tickrs_df['coin_name'].tolist()
-    except:
-        tickers = pyupbit.get_tickers(fiat="KRW")
-
-    st = time.time()
-    print("대상 선택 시작 : "+interval)
-    df = coin_information_interval(tickers, interval, benefit)
-    df = df[df.price_changed_ratio>0]
-    df.reset_index(drop=True, inplace=True)
-    result = merge_df(df)
-    et = time.time()
-    diff = round(et-st, 2)
-    print("대상 선택 종료 : " + str(diff)+"초")
-    print("selection coin count: "+str(len(set(result.coin_name)))+", avg_changed_price: "+str(round(np.mean(result.price_changed_ratio)*100,5))+"%")
-
-
-    return result
-
-########################## data
-def save_uuid(uuid):
-    #uuid = res
-    # uuid -> dataframe, 기존의 uuid를 불러온다. uuid를 저장한다
-    #df = df.dropna(axis=0)
-    name = 'reservation_list.json'
-    directory = 'reservation'
-    json_file = directory+'/'+name
-    # 폴더생성
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-        # 데이터 읽고 머지
-
-    file_list = os.listdir(directory)
-    mdf = pd.DataFrame([uuid], columns=['uuid'])
-    if len(file_list) >= 1:
-        ori_df = pd.read_json(json_file, orient='table')
-        mdf = pd.concat([ori_df.reset_index(drop=True), mdf.reset_index(drop=True)], axis=0)
-
-    while len(file_list) == 0:
-        try:
-            os.remove(json_file)
-        except:
-            pass
-        file_list = os.listdir(directory)
-
-    mdf.to_json(json_file, orient='table')
-    return mdf
-def load_uuid():
-    # uuid -> dataframe, 기존의 uuid를 불러온다. uuid를 저장한다
-    directory = 'reservation'
-    ori_df= []
-    if os.path.exists(directory) :
-        name = os.listdir(directory)[-1]
+            print("판매 error")
+class coin_common:
+    def merge_df(self, df, directory, name):
+        #df = result
         json_file = directory + '/' + name
-        ori_df = pd.read_json(json_file, orient='table')
-    else:
-        print("예약 내역이 없습니다.")
-    return ori_df
-def load_df():
-    name = 'schedule_list.json'
-    directory = 'schedule'
-    json_file = directory + '/' + name
-    ori_df = pd.read_json(json_file, orient='table')
-    ori_df = pd.DataFrame(ori_df).reset_index(drop=True)
-    return ori_df
-
-def merge_df(df):
-    mdf = df
-    name = 'schedule_list.json'
-    directory = 'schedule'
-    json_file = directory + '/' + name
-# 폴더생성
-    while not os.path.exists(directory):
-        os.makedirs(directory)
-
-    file_list = os.listdir(directory)
-    if len(file_list) >= 1:
-        ori_df = pd.read_json(json_file, orient='table')
-        mdf = pd.concat([ori_df.reset_index(drop=True), mdf.reset_index(drop=True)], axis=0)
-        mdf.reset_index(drop = True, inplace = True)
-
-    now = datetime.now()
-    mdf = mdf[now <= mdf.end_date_bid]
-    mdf.reset_index(drop=True, inplace=True)
-    while len(file_list) >= 1 :
-        os.remove(json_file)
-        file_list = os.listdir(directory)
-    mdf.to_json(json_file, orient='table')
-    return mdf
-
-######################### cancel
-def convert(set):
-    return [*set, ]
-
-def reservation_cancel(upbit):
-    df = []
-    try:
-        df = load_uuid()
-        #uuids = ['aa','bb']
-    except:
-        pass
-    if len(df) > 0:
-        uuids = convert(set(df.uuid))
-        while len(uuids) > 0:
-            for uuid in uuids:
-                status = 'wait'
-                res = []
-                while len(res) == 0:
+        # 폴더생성
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        df = df.dropna(axis=0)
+        df = pd.DataFrame(df)
+        if os.path.isfile(directory):
+            ori_df = pd.read_json(json_file, orient='table')
+            df = pd.concat([ori_df, df], axis=0)
+            df.reset_index(drop=True, inplace=True)
+        else:
+            df = df
+        df.to_json(json_file, orient='table')
+    def load_df(self, directory, name):
+        ori_df = []
+        json_file = directory + '/' + name
+        try:
+            name = os.listdir(directory)[-1]
+            json_file = directory + '/' + name
+            ori_df = pd.read_json(json_file, orient='table')
+        except:
+            print("데이터 로드 실패: "+json_file)
+        return ori_df
+    def reservation_cancel(self, upbit, directory, name):
+        df = self.load_df(directory, name)
+        if len(df) > 0:
+            uuids = list(set(df.uuid))
+            while len(uuids) > 0:
+                for uuid in uuids:
                     try:
                         res = upbit.cancel_order(uuid)
-                        time.sleep(0.5)
+                        time.sleep(0.3)
                         uuids.remove(uuid)
                     except:
                         pass
-        name = 'reservation_list.json'
-        directory = 'reservation'
-        json_file = directory + '/' + name
-        file_list = os.listdir(directory)
-        while len(file_list) > 0:
-            try:
-                os.remove(json_file)
-            except:
-                pass
-            file_list = os.listdir(directory)
-        mdf = pd.DataFrame(uuids, columns=['uuid']).reset_index(drop=True)
-        mdf.to_json(json_file, orient='table')
-    else:
-        print("예약이 없음")
+            print("모든 예약 취소")
+        else:
+            print("예약 없음")
+    def my_coin(self, upbit):
+        my_coin = pd.DataFrame(upbit.get_balances())
+        my_coin['coin_name'] = my_coin.unit_currency + '-' + my_coin.currency
+        my_coin['buy_price'] = pd.to_numeric(my_coin.balance, errors='coerce') \
+                               * pd.to_numeric(my_coin.avg_buy_price, errors='coerce')
+        return my_coin
+class coin_buy:
+    def __init__(self, upbit):
+        self.directory = 'buy_list'
+        self.name = 'buy_list.json'
+        self.upbit = upbit
 
+    def cancel(self):
+        coin_common().reservation_cancel(self.upbit,self.directory, self.name)
 
-def multi_coin_validation(upbit, benefit):
-    #interval = intervals[0]
-    #intervals = ["day", "minute240", "minute60", "minute30", "minute15", 'minute10', 'minute5']
-    intervals = ["minute15", 'minute10', 'minute5', 'minute3']
-    tt = list()
-    at = time.time()
-    while True:
-        s1 = time.time()
-        diff1 = 0
-        while diff1 < 60*15:
-            interval = intervals[0]
-            coin_validation(upbit, interval, benefit)
-            print("completed: " + interval + "")
-            s2 = time.time()
-            diff2 = 0
-            while diff2 < 60 * 10:
-                interval = intervals[1]
-                coin_validation(upbit, interval, benefit)
-                print("completed: " + interval)
-                s3 = time.time()
-                diff3 = 0
-                while diff3 < 60 * 5:
-                    interval = intervals[2]
-                    coin_validation(upbit, interval, benefit)
-                    print("completed: " + interval)
+    def buying(self, coin_name, investment, point):
+        self.point = point
+        self.coin_name = coin_name
+        self.investment = investment
+        self.price()
+        self.execute()
 
-                    s4 = time.time()
-                    diff4 = 0
-                    while diff4 < 60 * 1:
-                        interval = intervals[3]
-                        coin_validation(upbit, interval, benefit)
-                        print("completed: " + interval)
-                        et = time.time()
-                        diff4 = et - s4
-                    et = time.time()
-                    diff3 = et - s3
-                et = time.time()
-                diff2 = et - s2
-            et = time.time()
-            diff1 = et - s1
-        bt = time.time()
-        tt = bt - at
-        print("total process time: " + str(tt) + "(s)")
+    def execute(self):
+        upbit = self.upbit
+        coin_name = self.coin_name
+        price = self.price
+        count = self.investment / self.price
+        count = count * (1 + self.point/10)
+        #count = investment / price
+        try:
+            res = upbit.buy_limit_order(coin_name, price, count)
+            time.sleep(0.3)
+            if len(res) > 2:
+                print("***구매 요청 정보***")
+                print("코인: "+coin_name + "/ 가격: " + str(price) + "/ 수량: " + str(count))
+                uuid = list()
+                uuid.append(res.get('uuid'))
+                result = pd.DataFrame(uuid, columns=['uuid']).reset_index(drop=True)
+                coin_common().merge_df(result, self.directory, self.name)
+        except:
+            print("구매 error")
 
-def coin_trade(upbit, investment, cutoff, benefit):
-    th1 = Process(target=multi_coin_validation, args=(upbit, benefit))
-    th2 = Process(target=execute_buy_schedule, args=(upbit, investment))
-    th3 = Process(target=execute_sell_schedule, args=(upbit, cutoff, benefit))
-    result = Queue()
-    th1.start()
-    th2.start()
-    th3.start()
-    th1.join()
-    th2.join()
-    th3.join()
+    def price(self):
+        coin_name = self.coin_name
+        orderbook = pyupbit.get_orderbook(coin_name)
+        df_orderbook = pd.DataFrame(orderbook[0]['orderbook_units'])
+        df_orderbook['cum_ask_size'] = df_orderbook['ask_size'].apply(lambda x: float(np.cumsum(x)))
+        df_orderbook['cum_bid_size'] = df_orderbook['bid_size'].apply(lambda x: float(np.cumsum(x)))
 
+        # 매수 > 매도의 가격을 측정
+        df_orderbook['buying_YN'] = df_orderbook.apply(lambda x: x.cum_ask_size < x.cum_bid_size, axis='columns')
+        check = [i for i, value in enumerate(list(df_orderbook.buying_YN)) if value == False]
+        if len(check)>0:
+            no = np.min(check)
+        else:
+            no = 14
+        self.price = df_orderbook.bid_price[max(no - 1, 0)]
 
-# input 1번 불러오면 되는 것들
-if __name__ == '__main__':
-    access_key = 'jVrl599q44MVUdfYznmTmSTTwKOmBx8iIpxHaue1'  # ''
-    secret_key = 'yoS95G5vZ8upRD2di0SxmSns72DBbVfbsL6kXAT4'  # ''
+def buy_process(upbit, result, coin_name):
+    buy_point = result.get('buy_point')
+    if buy_point > 0:
+        coin_buy(upbit).buying(coin_name, investment, buy_point)  # 구매
+
+def sell_process(cs, result, coin_name):
+    sell_point = result.get('sell_point')
+    if sell_point > 0:
+        KRW = float(cs.my_coin[0:1].balance[0])
+        my_buy_price = np.sum(cs.my_coin.buy_price)
+        my_trade_coin = cs.my_coin[pd.to_numeric(cs.my_coin.buy_price) > 0]
+        tickers = list(my_trade_coin.coin_name)
+        cs.selling(coin_name, sell_point)  # 판매
+
+def auto_cancel(upbit):
+
+    coin_sell(upbit).cancel()
+    coin_buy(upbit).cancel()
+
+def trade(access_key, secret_key, interval, investment):
     upbit = pyupbit.Upbit(access_key, secret_key)
+    tickers = pyupbit.get_tickers(fiat="KRW")
+    while True:
+        st = time.time()
+        diff = 0
+        while diff < 20:
+            for coin_name in tickers:
+                #coin_name = tickers[0]
+                result = search_coin(coin_name, interval).excute()
+                cs = coin_sell(upbit)
+                buy_process(upbit, result, coin_name)
+                sell_process(cs, result, coin_name)
+                # th1 = Process(target=buy_process, args=(upbit, result, coin_name))
+                # th2 = Process(target=sell_process, args=(upbit, cs, result, coin_name))
+                #
+                # result = Queue()
+                # th1.start()
+                # th2.start()
+                # th1.join()
+                # th2.join()
+            et = time.time()
+            diff = et - st
+        auto_cancel(upbit)
+
+if __name__ == '__main__':
+    #intervals = ["day", "minute240", "minute60", "minute30", "minute15", 'minute10', 'minute5']
+    access_key = 'jVrl599q44MVUdfYznmTmSTTwKOmBx8iIpxHaue1'
+    secret_key = 'yoS95G5vZ8upRD2di0SxmSns72DBbVfbsL6kXAT4'
     investment = 10000
-    cutoff = 0.009
-    benefit = 0.01
-    coin_trade(upbit, investment, cutoff, benefit)
+    interval = 'minute10'
+    trade(access_key, secret_key, interval, investment)
+
