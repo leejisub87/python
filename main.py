@@ -19,7 +19,7 @@ def merge_df(df, directory, name):
         os.makedirs(directory)
     df = df.dropna(axis=0)
     df = pd.DataFrame(df)
-    if os.path.isfile(directory):
+    if not os.path.isfile(directory):
         ori_df = pd.read_json(json_file, orient='table')
         df = pd.concat([ori_df, df], axis=0)
         df.reset_index(drop=True, inplace=True)
@@ -30,6 +30,7 @@ def merge_df(df, directory, name):
 def coin_buy_price(coin_name, buy_point):
     orderbook = pyupbit.get_orderbook(coin_name)
     df_orderbook = pd.DataFrame(orderbook[0]['orderbook_units'])
+    time.sleep(0.1)
     df_orderbook['cum_ask_size'] = df_orderbook['ask_size'].apply(lambda x: float(np.cumsum(x)))
     df_orderbook['cum_bid_size'] = df_orderbook['bid_size'].apply(lambda x: float(np.cumsum(x)))
 
@@ -42,23 +43,6 @@ def coin_buy_price(coin_name, buy_point):
         no = 14
     price = df_orderbook.bid_price[max(no - 1, 0)]
     return price
-def coin_buy(upbit, coin_name, investment, buy_point):
-        price = coin_buy_price(coin_name, buy_point)
-        count = investment / price
-        try:
-            res = upbit.buy_limit_order(coin_name, price, count)
-            time.sleep(1)
-            if len(res) > 2:
-                print("***구매 요청 정보***")
-                print("코인: "+coin_name + "/ 가격: " + str(price) + "/ 수량: " + str(count))
-                uuid = list()
-                uuid.append(res.get('uuid'))
-                result = pd.DataFrame(uuid, columns=['uuid']).reset_index(drop=True)
-                directory = 'buy_list'
-                name = 'buy_list.json'
-                merge_df(result, directory, name)
-        except:
-            print("구매 error")
 
 #=========================================
 # 구매
@@ -66,6 +50,7 @@ def coin_buy(upbit, coin_name, investment, buy_point):
 
 #탐색
 #===========================================
+
 def check_buy_case(df):
     idx = len(df)
     updown = criteria_updown(df)
@@ -343,9 +328,9 @@ def coin_information(coin_name, interval, benefit):
     #coin_name = tickers[1]
     price_currency = pyupbit.get_current_price(coin_name)
     df = []
-    while len(df) == 0:
+    while len(df)==0 :
         df = pyupbit.get_ohlcv(coin_name, interval=interval, count=10)
-        time.sleep(1)
+        time.sleep(0.3)
     price_changed_ratio = changed_ratio(df, price_currency) # changed_ratio
     box = box_information(df, benefit) ### criteria_boxplot
     start_date_ask = datetime.now()
@@ -519,11 +504,12 @@ def buy_senario_1(df, coin_name):
                     levels = 1
                     print(coin_name + '의 주가 (소)반등을 예고')
     return levels
-def search_coin(coin_name, interval):
+def search_coin(coin_name, interval, benefit):
     buy_point = 0
     sell_point = 0
+    validation = []
     df = pyupbit.get_ohlcv(coin_name, interval=interval, count=10)
-    benefit = 0.01
+    time.sleep(0.1)
     validation = coin_information(coin_name, interval, benefit)
 
     df2 = df[-7:]
@@ -535,9 +521,8 @@ def search_coin(coin_name, interval):
 
     if validation.get('check_buy'):
         buy_point = buy_point + 1 + validation.get('influence_v')
-    elif validation.get('check_sell'):
+    if validation.get('check_sell'):
         sell_point = sell_point + 1 + validation.get('influence_v')
-    result = {'buy_point': buy_point, 'sell_point': sell_point}
     validation['buy_point'] = buy_point
     validation['sell_point'] = sell_point
     validation['levels'] = levels
@@ -555,6 +540,8 @@ def load_df(directory, name):
         print("데이터 로드 실패: "+json_file)
     return ori_df
 def reservation_cancel(upbit, directory, name):
+    #directory = 'sell_list'
+    #name = 'sell_list.json'
     df = load_df(directory, name)
     if len(df) > 0:
         uuids = list(set(df.uuid))
@@ -562,7 +549,7 @@ def reservation_cancel(upbit, directory, name):
             for uuid in uuids:
                 try:
                     res = upbit.cancel_order(uuid)
-                    time.sleep(1)
+                    time.sleep(0.3)
                     uuids.remove(uuid)
                 except:
                     pass
@@ -580,25 +567,20 @@ def f_my_coin(upbit):
 def f_price(coin_name, sell_point, type):
     orderbook = pyupbit.get_orderbook(coin_name)
     df_orderbook = pd.DataFrame(orderbook[0]['orderbook_units'])
-    time.sleep(1)
+    time.sleep(0.1)
     df_orderbook['cum_ask_size'] = df_orderbook['ask_size'].apply(lambda x: float(np.cumsum(x)))
     df_orderbook['cum_bid_size'] = df_orderbook['bid_size'].apply(lambda x: float(np.cumsum(x)))
 
     # 매수 > 매도의 가격을 측정
     df_orderbook['selling_YN'] = df_orderbook.apply(lambda x: x.cum_ask_size > x.cum_bid_size, axis='columns')
     check = [i for i, value in enumerate(list(df_orderbook.selling_YN)) if value == False]
-    if type ==1:
-        no = min(check) + sell_point
+    if type == 1:
+        no = sell_point
+        price = df_orderbook.ask_price[min(no, 14)]
     else:
-        no = min(min(check) + sell_point, 14)
-    price = df_orderbook.ask_price[max(no - 1, 0)]
+        no = min(check) + sell_point
+        price = df_orderbook.ask_price[min(no, 14)]
     return price
-def check_cutoff(df, coin_name):
-    df = df[df.coin_name == coin_name].reset_index(drop=True)
-    price_currency = pyupbit.get_current_price(coin_name)
-    b = df.avg_buy_price.astype(float)
-    cur_rate = (price_currency - b) / b
-    return cur_rate
 def round_price(price):
     if price < 10:
         price = round(price, 2)
@@ -615,42 +597,46 @@ def round_price(price):
     else:
         price = round(price / 1000, 0) * 1000
     return price
-def coin_sell(upbit, coin_name, df, cutoff, benefit, sell_point):
+def coin_sell(upbit, coin_name, mdf, cutoff, benefit, sell_point):
     #coin_name = 'KRW-STPT'
+    df = mdf
     df = df[df.coin_name == coin_name].reset_index(drop=True)
-    count = df.balance.astype(float)
-    cur_rate = check_cutoff(df, coin_name)
+    count = df.balance.astype(float)[0]
     price_currency = pyupbit.get_current_price(coin_name)
-    if cur_rate < cutoff:
+    b = df.avg_buy_price.astype(float)
+    cur_rate = (price_currency - b) / b
+    if (cur_rate < cutoff)[0]:
         price = price_currency
         type = "손절"
-    elif cur_rate > benefit:
+    elif (cur_rate > benefit)[0]:
         price = f_price(coin_name, sell_point, 1)
         type = "익절"
     else:
         price = f_price(coin_name, sell_point, 2)
         type = "판매시도"
-    try:
-        price = round_price(price)
-        res = upbit.sell_limit_order(coin_name, price, count)
-        time.sleep(1)
-        if len(res) > 2:
-            print("***판매 요청 정보***")
-            print("구분: "+type+"/ 코인: "+coin_name +"/ 예상손익률: "+ str(round(cur_rate*100,2)) + "% / 예상손익금: " + str(round(price*cur_rate*count,0)))
-            uuid = list()
-            uuid.append(res.get('uuid'))
-            result = pd.DataFrame(uuid, columns=['uuid'])
-            directory = 'sell_list'
-            name = 'sell_list.json'
-            merge_df(result, directory, name)
-    except:
-        print("판매 error")
+
+    price = round_price(price)
+    res = upbit.sell_limit_order(coin_name, price, count)
+    time.sleep(0.2)
+    if len(res) > 2:
+        print("***판매 요청 정보***")
+        print("구분: "+type+"/ 코인: "+coin_name +"/ 예상손익률: "+ str(round(cur_rate[0]*100,2)) + "% / 예상손익금: " + str(round(price*cur_rate[0]*count,0)))
+        #a = '9a870a96-3fa9-48b4-98bb-545d5f1f5981'
+        uuid = list()
+        uuid.append(res.get('uuid'))
+        #uuid.append(a)
+        result = pd.DataFrame(uuid, columns=['uuid'])
+        directory = 'sell_list'
+        name = 'sell_list.json'
+        merge_df(result, directory, name)
+
 def check_money(upbit):
     df = f_my_coin(upbit)
     save_money = np.sum(df.buy_price)
     KRW = (df[0:1].balance).astype(float)
     my_money = KRW + save_money
     return my_money
+
 def check_money_rate(first_money, currency_money):
     now = datetime.now()
     check_ratio = (currency_money - first_money) / first_money
@@ -665,31 +651,33 @@ def f_sell_ticker(df):
 
 def auto_sell(upbit, interval, cutoff, benefit):
     my_coin = f_my_coin(upbit)
-    df = my_coin[my_coin.buy_price > 5000].sort_values('buy_price', ascending=False).reset_index(drop=True)
-    sell_tickers = f_sell_ticker(df)
-    if len(sell_tickers) == 0:
-        print("판매 후보가 없습니다.")
-    else:
-        for coin_name in sell_tickers:
-            result = search_coin(coin_name, "minute1")
-            sell_point = result.get('sell_point')
-            result = search_coin(coin_name, interval)
-            sell_point = sell_point + result.get('sell_point')
-            coin_sell(upbit, coin_name, df, cutoff, benefit, sell_point)
+    mdf = my_coin[my_coin.buy_price > 5000].sort_values('buy_price', ascending=False).reset_index(drop=True)
+    sell_tickers = f_sell_ticker(mdf)
 
-def auto_buy(upbit, buy_tickers, investment, interval):
+    for coin_name in sell_tickers:
+        #coin_name = sell_tickers[0]
+        result = search_coin(coin_name, interval, benefit)
+        sell_point = result.get('sell_point')
+        coin_sell(upbit, coin_name, mdf, cutoff, benefit, sell_point)
+def auto_buy(upbit, buy_tickers, investment, check_interval, benefit):
     for coin_name in buy_tickers:
-        result = search_coin(coin_name, interval)
+        #interval = 'minute1'
+        result = search_coin(coin_name, check_interval, benefit)
         buy_point = result.get('buy_point')
-        coin_buy(upbit, coin_name, investment, buy_point)
-def init_time(sec, function, dir, name):
-    diff = 0
-    st = time.time()
-    reservation_cancel(upbit, dir, name)
-    while diff < sec:
-        function
-        et = time.time()
-        diff = et - st
+        price = coin_buy_price(coin_name, buy_point)
+        count = investment / price
+        res = upbit.buy_limit_order(coin_name, price, count)
+        time.sleep(0.3)
+        if len(res) > 2:
+            print("***구매 요청 정보***")
+            print("코인: " + coin_name + "/ 가격: " + str(price) + "/ 수량: " + str(count))
+            uuid = list()
+            uuid.append(res.get('uuid'))
+            result = pd.DataFrame(uuid, columns=['uuid']).reset_index(drop=True)
+            directory = 'buy_list'
+            name = 'buy_list.json'
+            merge_df(result, directory, name)
+
 def selection_tickers(interval, benefit):
     #interval = 'day'
     #df = load_df('schedule/schedule.json')
@@ -704,31 +692,38 @@ def trade(upbit, target_interval, check_interval, investment, cutoff, benefit):
     #os.remove('schedule/schedule.json')
     first_money = check_money(upbit)
     #buy_tickers = selection_tickers(target_interval, benefit)
-    buy_tickers = load_df('schedule','schedule.json')
+    buy_tickers = load_df('schedule','schedule.json').coin_name
+    buy_tickers = list(buy_tickers)
     print("Today 선택 코인: " + str(buy_tickers))
     while True:
         currency_money = check_money(upbit)
         check_money_rate(first_money, currency_money)
-        #init_time(30, auto_buy(upbit, buy_tickers, investment, interval), 'buy_list', 'buy_list.json')
-        #init_time(10, auto_sell(upbit, sell_tickers, interval, cutoff, benefit), 'sell_list', 'sell_list.json')
-        result = Queue()
-        th1 = Process(target=init_time, args=(30, auto_buy(upbit, buy_tickers, investment, check_interval), 'buy_list', 'buy_list.json'))
-        th2 = Process(target=init_time, args=(30, auto_sell(upbit, check_interval, cutoff, benefit), 'sell_list', 'sell_list.json'))
-        th1.start()
-        th2.start()
-        th1.join()
-        th2.join()
-        result.put('STOP')
+        diff = 0
+        st = time.time()
+        reservation_cancel(upbit, 'sell_list', 'sell_list.json')
+        reservation_cancel(upbit, 'buy_list', 'buy_list.json')
+        while diff < 30:
+            result = Queue()
+            th1 = Process(target=auto_buy, args=(upbit, buy_tickers, investment, check_interval, benefit))
+            th2 = Process(target=auto_sell, args=(upbit, check_interval, cutoff, benefit))
+            th1.start()
+            th2.start()
+            th1.join()
+            th2.join()
+            et = time.time()
+            diff = et - st
+        # init_time(10, auto_buy(upbit, buy_tickers, investment, check_interval), 'buy_list', 'buy_list.json')
+        # init_time(10, auto_sell(upbit, check_interval, cutoff, benefit), 'sell_list', 'sell_list.json')
+
 
 if __name__ == '__main__':
     #intervals = ["day", "minute240", "minute60", "minute30", "minute15", 'minute10', 'minute5']
     access_key = 'ZvHxer7F6MuYNTbBODOtO7L0y6BVhdbhbblRDhXB'
     secret_key = 'wF6x0CPDzwYFfZgI2wnmhKNBr99WmiXe0QWyqxGS'
     upbit = pyupbit.Upbit(access_key, secret_key)
-    investment = 10000
+    investment = 5500
     cutoff = -0.009
     benefit = 0.02
-    check_interval = 'minute3'
+    check_interval = 'minute5'
     target_interval = 'day'
     trade(upbit, target_interval, check_interval, investment, cutoff, benefit)
-
