@@ -343,7 +343,7 @@ def coin_information(coin_name, interval, benefit):
     #coin_name = tickers[1]
     price_currency = pyupbit.get_current_price(coin_name)
     df = []
-    while len(df)==0 :
+    while len(df) == 0:
         df = pyupbit.get_ohlcv(coin_name, interval=interval, count=10)
         time.sleep(1)
     price_changed_ratio = changed_ratio(df, price_currency) # changed_ratio
@@ -667,12 +667,15 @@ def auto_sell(upbit, interval, cutoff, benefit):
     my_coin = f_my_coin(upbit)
     df = my_coin[my_coin.buy_price > 5000].sort_values('buy_price', ascending=False).reset_index(drop=True)
     sell_tickers = f_sell_ticker(df)
-    for coin_name in sell_tickers:
-        result = search_coin(coin_name, "minute1")
-        sell_point = result.get('sell_point')
-        result = search_coin(coin_name, interval)
-        sell_point = sell_point + result.get('sell_point')
-        coin_sell(upbit, coin_name, df, cutoff, benefit, sell_point)
+    if len(sell_tickers) == 0:
+        print("판매 후보가 없습니다.")
+    else:
+        for coin_name in sell_tickers:
+            result = search_coin(coin_name, "minute1")
+            sell_point = result.get('sell_point')
+            result = search_coin(coin_name, interval)
+            sell_point = sell_point + result.get('sell_point')
+            coin_sell(upbit, coin_name, df, cutoff, benefit, sell_point)
 
 def auto_buy(upbit, buy_tickers, investment, interval):
     for coin_name in buy_tickers:
@@ -719,13 +722,13 @@ def trade(upbit, target_interval, check_interval, investment, cutoff, benefit):
 
 if __name__ == '__main__':
     #intervals = ["day", "minute240", "minute60", "minute30", "minute15", 'minute10', 'minute5']
-    access_key = 'Rln0poebBg1tTREEXQuUIDDeNSiwV9KCkpfZfw8w'
-    secret_key = 'bkqV71xEsPR7UySr4BxGmEDHcWq3bIWSeIrcI1xD'
+    access_key = 'ZvHxer7F6MuYNTbBODOtO7L0y6BVhdbhbblRDhXB'
+    secret_key = 'wF6x0CPDzwYFfZgI2wnmhKNBr99WmiXe0QWyqxGS'
     upbit = pyupbit.Upbit(access_key, secret_key)
     investment = 10000
     cutoff = -0.009
     benefit = 0.02
-    check_interval = 'minute1'
+    check_interval = 'minute3'
     target_interval = 'day'
     trade(upbit, target_interval, check_interval, investment, cutoff, benefit)
 
