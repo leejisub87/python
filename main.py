@@ -688,15 +688,17 @@ def trade(upbit, investment):
                     print("구매/판매 대기: "+coin_name)
             et = time.time()
             diff = et - st
-            reservation_cancel(upbit, 'reservation', 'buy_list.json')
-            reservation_cancel(upbit, 'reservation', 'sell_list.json')
+            reservation_cancel(upbit, 'buy_list', 'buy_list.json')
+            reservation_cancel(upbit, 'sell_list', 'sell_list.json')
 
 if __name__ == '__main__':
     #intervals = ["day", "minute240", "minute60", "minute30", "minute15", 'minute10', 'minute5']
-    access_key = 'ZvHxer7F6MuYNTbBODOtO7L0y6BVhdbhbblRDhXB'
-    secret_key = 'wF6x0CPDzwYFfZgI2wnmhKNBr99WmiXe0QWyqxGS'
+    access_key = 'Rln0poebBg1tTREEXQuUIDDeNSiwV9KCkpfZfw8w'
+    secret_key = 'bkqV71xEsPR7UySr4BxGmEDHcWq3bIWSeIrcI1xD'
+
     upbit = pyupbit.Upbit(access_key, secret_key)
-    investment = 20000
+    investment = 10000
     #coin_name = 'KRW-BTT'
     interval = 'minute10'
     trade(upbit, investment)
+
