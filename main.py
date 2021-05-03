@@ -9,22 +9,9 @@ from multiprocessing import Process, Queue
 pd.set_option('display.max_columns', 20)
 
 
-def coin_trade(upbit, investment, cutoff, benefit):
-    th2 = Process(target=execute_buy_schedule, args=(upbit, intervals, investment))
-    th3 = Process(target=execute_sell_schedule, args=(upbit, intervals, cutoff, benefit))
-    result = Queue()
-    th2.start()
-    th3.start()
-    th2.join()
-    th3.join()
-    # auto_sell(upbit, coin_name, intervals, cutoff, benefit)
-    # auto_buy(upbit, coin_name, intervals, investment)
 
-    #reservation_cancel(upbit, 'buy_list', 'buy_list.json')
-    #reservation_cancel(upbit, 'sell_list', 'sell_list.json')
-
-
-def execute_buy_schedule(upbit, intervals,investment):
+def execute_buy_schedule(upbit, intervals, investment, lines):
+    tickers = pyupbit.get_tickers(fiat="KRW")
     while True:
         st = time.time()
         diff = 0
@@ -37,13 +24,13 @@ def execute_buy_schedule(upbit, intervals,investment):
             if money <= max(5000, investment):
                 print("주문금액 부족")
             else:
-                tickers = pyupbit.get_tickers(fiat="KRW")
                 for coin_name in tickers:
-                    auto_buy(upbit, coin_name, intervals, investment)
+                    auto_buy(upbit, coin_name, intervals, investment, lines)
                     time.sleep(0.1)
             et = time.time()
             diff = et - st
-def execute_sell_schedule(upbit, intervals, cutoff, benefit):
+
+def execute_sell_schedule(upbit, intervals, cutoff, benefit, lines):
     while True:
         st = time.time()
         diff = 0
@@ -51,21 +38,24 @@ def execute_sell_schedule(upbit, intervals, cutoff, benefit):
         sell_df = []
         reservation_cancel(upbit, 'sell_list', 'sell_list.json')
         while diff < 60:
-            tickers = pyupbit.get_tickers(fiat="KRW")
-            for coin_name in tickers:
-                auto_sell(upbit, coin_name, intervals, cutoff, benefit)
+            my = f_my_coin(upbit)
 
-def auto_buy(upbit, coin_name, intervals, investment):
-    result = []
-    for interval in intervals:
-        res = generate_rate(coin_name, interval, lines)
-        result.append(res)
-    df = pd.DataFrame(result)
+            tickers = (my[1:].coin_name).to_list()
+            if not tickers:
+                print("판매 가능한 코인이 없습니다.")
+            else:
+                for coin_name in tickers:
+                    auto_sell(upbit, coin_name, intervals, cutoff, benefit, lines)
+
+def auto_buy(upbit, coin_name, intervals, investment, lines):
+
+    df = generate_rate(coin_name, intervals, lines)
     validation = check_updown(df)  # dwon시, rate_env = 0에 가까울수록 구매 // up시, rate_env =
 
     if df.type[0] == 'try_buy':
         if np.sum(df.rate_bol > 1) >= 4:
             if validation == 'up':
+                no = 14
                 if np.sum(df.next_pattern == 'down') >= 1 & df.next_pattern[0] == 'up':
                     print("예측 상승(약): " + coin_name)
                     no = 4
@@ -75,9 +65,11 @@ def auto_buy(upbit, coin_name, intervals, investment):
                 elif np.sum(df.next_pattern == 'down') >= 3 & df.next_pattern[0] == 'up':
                     print("예측 상승(강): " + coin_name)
                     no = 0
+                else:
+                    no = 14
                 price = min(df.currency[0], coin_buy_price(coin_name, no))
                 count = investment / price * df.rate_env[0]
-                excute_buy(upbit, price, count)
+                excute_buy(upbit, coin_name, price, count)
             elif validation == 'down':
                 if np.sum(df.next_pattern == ['down', 'down', 'down', 'up']) >= 4:
                     print("예측 반등(강): " + coin_name)
@@ -93,13 +85,16 @@ def auto_buy(upbit, coin_name, intervals, investment):
             # 구매
             price = min(df.currency[0], coin_buy_price(coin_name, no))
             count = investment / price * df.rate_env[0]
-            excute_buy(upbit, price, count)
-def auto_sell(upbit, coin_name, intervals, cutoff, benefit):
-    result = []
-    for interval in intervals:
-        res = generate_rate(coin_name, interval, lines)
-        result.append(res)
-    df = pd.DataFrame(result)
+            excute_buy(upbit, coin_name, price, count)
+        else:
+            print(coin_name + " 은 볼린저 밴저 기준 불만족")
+    else:
+        print(coin_name + " 은 구매 조건 불만족")
+
+
+def auto_sell(upbit, coin_name, intervals, cutoff, benefit, lines):
+
+    df = generate_rate(coin_name, intervals, lines)
     validation = check_updown(df)  #dwon시, rate_env = 0에 가까울수록 구매 // up시, rate_env =
 
     my = f_my_coin(upbit)
@@ -133,15 +128,17 @@ def auto_sell(upbit, coin_name, intervals, cutoff, benefit):
                         execute_sell(upbit, balance, coin_name, price)
         else:
             print("판매 대기:"+coin_name)
+    else:
+        print('잔고에 구매된 코인 없음')
 
 def f_my_coin(upbit):
     df = pd.DataFrame(upbit.get_balances())
     df.reset_index(drop=True, inplace=True)
     df['coin_name'] = df.unit_currency + '-' + df.currency
-    df['buy_price'] = pd.to_numeric(df.balance, errors='coerce') * pd.to_numeric(df.avg_buy_price,
-                                                                                 errors='coerce')
+    df['buy_price'] = pd.to_numeric(df.balance, errors='coerce') * pd.to_numeric(df.avg_buy_price, errors='coerce')
+    df = df[df.buy_price > 5000]
     return df
-def excute_buy(upbit, price, count):
+def excute_buy(upbit, coin_name, price, count):
     price = round_price(price)
     res = upbit.buy_limit_order(coin_name, price, count)
     time.sleep(0.3)
@@ -154,6 +151,7 @@ def excute_buy(upbit, price, count):
         directory = 'buy_list'
         name = 'buy_list.json'
         merge_df(result, directory, name)
+
 def execute_sell(upbit, balance, coin_name, price):
     if price * balance > 5000:
         price = round_price(price)
@@ -162,7 +160,7 @@ def execute_sell(upbit, balance, coin_name, price):
             time.sleep(0.5)
             if len(res) > 2:
                 print("***판매 요청 정보***")
-                print("코인: " + coin_name + "/ 가격: " + str(price) + "/ 수량: " + str(count))
+                print("코인: " + coin_name + "/ 가격: " + str(price) + "/ 수량: " + str(balance))
                 # a = '9a870a96-3fa9-48b4-98bb-545d5f1f5981'
                 uuid = list()
                 uuid.append(res.get('uuid'))
@@ -192,6 +190,7 @@ def coin_buy_price(coin_name,m):
         no = m
     price = df_orderbook.bid_price[max(no - 1, 0)]
     return price
+
 def coin_sell_price(coin_name,m):
     orderbook = pyupbit.get_orderbook(coin_name)
     df_orderbook = pd.DataFrame(orderbook[0]['orderbook_units'])
@@ -217,11 +216,12 @@ def load_df(directory, name):
         json_file = directory + '/' + name
         ori_df = pd.read_json(json_file, orient='table')
     except:
-        print("데이터 로드 실패: "+json_file)
+        pass
     return ori_df
+
 def reservation_cancel(upbit, directory, name):
     #directory = 'sell_list'
-    #name = 'sell_list.json'
+    #name = 'sell_list.json'\
     df = load_df(directory, name)
     if len(df) > 0:
         uuids = list(set(df.uuid))
@@ -253,6 +253,7 @@ def merge_df(df, directory, name):
         df = df
     df.to_json(json_file, orient='table')
     return df
+
 def round_price(price):
     if price < 10:
         price = round(price, 2)
@@ -269,6 +270,7 @@ def round_price(price):
     else:
         price = round(price / 1000, 0) * 1000
     return price
+
 def check_buy_case(df):
     idx = len(df)
     result = False
@@ -283,6 +285,7 @@ def check_buy_case(df):
     elif bool(np.sum(df.color == 'blue')>=3) & bool(df.chart_name[idx-1] in ['doji_cross','spinning_tops']):
         result = True
     return result
+
 def check_sell_case(df):
     idx = len(df)
     result = False
@@ -293,6 +296,7 @@ def check_sell_case(df):
     elif bool(np.sum(df.color == 'red') >= 3) & bool(df.chart_name[idx-1] in ['spinning_tops','doji_cross']):
         result = True
     return result
+
 def criteria_updown(df):
     a = df
     a.reset_index(drop=True, inplace=True)
@@ -325,6 +329,7 @@ def criteria_updown(df):
         volume_status = 'normal'
     result = {'volume_status':volume_status,'volume_rate':volume_rate, 'close_rate':close_rate, 'open_status':open_status}
     return result
+
 def coin_predict(default_df):
     df = default_df[-5:]
     df.reset_index(inplace=True, drop = True)
@@ -334,6 +339,7 @@ def coin_predict(default_df):
     # 상태
     result = {'check_buy':check_buy,'check_sell': check_sell}
     return result
+
 def period_end_date(intervals):
     start_time = datetime.now()
     if intervals == "month":
@@ -495,42 +501,63 @@ def check_updown(df):
         check = 'normal'
     return check
 
-def generate_rate(coin_name, interval, lines):
-    currency = pyupbit.get_current_price(coin_name)
-    df = pyupbit.get_ohlcv(coin_name, interval = interval, count = lines)
-    df = df[0:len(df)-1]
-    box = box_information(df)
-    df['center'] = np.mean([df['close'],df['open']])
-    bol_median = np.mean([df['high'],df['center'] ,df['low']])
-    bol_std = np.std([df['high'],df['center'] ,df['low']])
-    bol_higher = bol_median + 2 * bol_std
-    bol_lower = bol_median - 2 * bol_std
-    env_higher = bol_median * 1.03 + 2 * bol_std
-    env_lower = bol_median * 0.97 - 2 * bol_std
+def generate_rate(coin_name, intervals, lines):
+    res = []
+    for interval in intervals:
+        #interval = intervals[0]
+        #coin_name = "KRW-BTT"
+        currency = pyupbit.get_current_price(coin_name)
+        df = pyupbit.get_ohlcv(coin_name, interval = interval, count = lines)
+        time.sleep(0.5)
+        df = df[0:len(df)-1]
+        box = box_information(df)
+        df['center'] = np.mean([df['close'],df['open']])
+        bol_median = np.mean([df['high'],df['center'] ,df['low']])
+        bol_std = np.std([df['high'],df['center'] ,df['low']])
+        bol_higher = bol_median + 2 * bol_std
+        bol_lower = bol_median - 2 * bol_std
+        env_higher = bol_median * 1.03 + 2 * bol_std
+        env_lower = bol_median * 0.97 - 2 * bol_std
 
-    value = currency - bol_median
-    if value > 0:
-        type = 'try_sell'
-        rate_bol = (currency - bol_median)/(bol_higher - bol_median)
-        rate_env = (currency - bol_median)/(env_higher - bol_median)
-    else:
-        type = 'try_buy'
-        rate_bol = (bol_median - currency)/(bol_median - bol_lower)
-        rate_env = (bol_median - currency)/(bol_median - env_lower)
+        value = currency - bol_median
+        if value > 0:
+            type = 'try_sell'
+            rate_bol = (currency - bol_median)/(bol_higher - bol_median)
+            rate_env = (currency - bol_median)/(env_higher - bol_median)
+        else:
+            type = 'try_buy'
+            rate_bol = (bol_median - currency)/(bol_median - bol_lower)
+            rate_env = (bol_median - currency)/(bol_median - env_lower)
 
-    if rate_env < 0:
-        rate_env = 0
-    if box.get('check_buy'):
-        next_pattern = 'up'
-    elif box.get('check_sell'):
-        next_pattern = 'down'
-    else:
-        next_pattern = 'normal'
-    idx = intervals.index(interval)
-    result = {'coin_name': coin_name, 'currency':currency, 'interval': interval, 'latest': idx, 'type': type, 'next_pattern': next_pattern, 'rate_bol': rate_bol, 'rate_env': rate_env,}
-    return result
+        if rate_env < 0:
+            rate_env = 0
+        if box.get('check_buy'):
+            next_pattern = 'up'
+        elif box.get('check_sell'):
+            next_pattern = 'down'
+        else:
+            next_pattern = 'normal'
+
+        idx = intervals.index(interval)
+        result = {'coin_name': coin_name, 'currency':currency, 'interval': interval, 'latest': idx, 'type': type, 'next_pattern': next_pattern, 'rate_bol': rate_bol, 'rate_env': rate_env,}
+    res.append(result)
+    df = pd.DataFrame(res)
+    return df
 
 
+def coin_trade(upbit, investment, intervals, cutoff, benefit, lines):
+    th1 = Process(target=execute_buy_schedule, args=(upbit, intervals, investment, lines))
+    th2 = Process(target=execute_sell_schedule, args=(upbit, intervals, cutoff, benefit, lines))
+    result = Queue()
+    th1.start()
+    th2.start()
+    th1.join()
+    th2.join()
+    # auto_sell(upbit, coin_name, intervals, cutoff, benefit)
+    # auto_buy(upbit, coin_name, intervals, investment)
+
+    #reservation_cancel(upbit, 'buy_list', 'buy_list.json')
+    #reservation_cancel(upbit, 'sell_list', 'sell_list.json')
 
 # input 1번 불러오면 되는 것들
 if __name__ == '__main__':
@@ -539,16 +566,10 @@ if __name__ == '__main__':
     upbit = pyupbit.Upbit(access_key, secret_key)
     # intervals = ["day", "minute240", "minute60", "minute30", "minute15", 'minute10', 'minute5']
     intervals = ["minute1", "minute5", "minute15", "minute30"]
-    tickers = pyupbit.get_tickers(fiat="KRW")
     investment = 50000
     cutoff = 0.009
     benefit = 0.019
     lines = 10
 
-    access_key = 'DXqzxyCQkqL9DHzQEyt8pK5izZXU03Dy2QX2jAhV'  # ''
-    secret_key = 'x6ubxLyUVw03W3Lx5bdvAxBGWI7MOMJjblYyjFNo'  # ''
-    upbit = pyupbit.Upbit(access_key, secret_key)
-    lines = 10
-    intervals = ["minute1", "minute5", "minute15", "minute30"]
 
-    coin_trade(upbit, investment, cutoff, benefit)
+    coin_trade(upbit, investment, intervals, cutoff, benefit, lines)
