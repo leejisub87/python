@@ -39,10 +39,10 @@ def execute_sell_schedule(upbit, intervals, cutoff, benefit, lines):
         reservation_cancel(upbit, 'sell_list', 'sell_list.json')
         while diff < 60:
             my = f_my_coin(upbit)
-
+            time.sleep(1)
             tickers = (my[1:].coin_name).to_list()
             if not tickers:
-                print("판매 가능한 코인이 없습니다.")
+                print(str(datetime.now())+" 판매 가능한 코인이 없습니다.")
             else:
                 for coin_name in tickers:
                     auto_sell(upbit, coin_name, intervals, cutoff, benefit, lines)
@@ -89,7 +89,7 @@ def auto_buy(upbit, coin_name, intervals, investment, lines):
         else:
             print(coin_name + " 은 볼린저 밴저 기준 불만족")
     else:
-        print(coin_name + " 은 구매 조건 불만족")
+        print(str(datetime.now()) +"    "+ coin_name + " 은 구매 조건 불만족")
 
 
 def auto_sell(upbit, coin_name, intervals, cutoff, benefit, lines):
