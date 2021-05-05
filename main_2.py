@@ -8,18 +8,28 @@ import os
 from multiprocessing import Process, Queue
 pd.set_option('display.max_columns', 20)
 
-
-def execute_buy_schedule(upbit, tickers, intervals, investment, lines):
+def selection_ticker(tickers):
+    res = list()
+    for coin_name in tickers:
+        intervals = []
+        df = generate_rate(coin_name, intervals, 15)
+        value = np.mean(df.rsi)
+        if bool(value < 50):
+            res.append(coin_name)
+    return res
+def execute_buy_schedule(upbit, intervals, investment, lines):
     money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
     investment = min(investment, money)
     while True:
+        tickers = pyupbit.get_tickers(fiat="KRW")
         st = time.time()
         diff = 0
         buy_df = []
         reservation_cancel(upbit, 'buy_list', 'buy_list.json')
         while diff < 60:
+            #tickers = selection_ticker(tickers)
             money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
-            time.sleep(0.5)
+            time.sleep(0.1)
 
             if money <= max(5000, investment):
                 print("주문금액 부족")
@@ -43,9 +53,9 @@ def execute_sell_schedule(upbit, intervals, cutoff, benefit, lines):
         while diff < 60:
             my = f_my_coin(upbit)
             time.sleep(1)
-            tickers = (my[1:].coin_name).to_list()
+            tickers = (my.coin_name).to_list()
             if not tickers:
-                print(str(datetime.now())+" 판매 가능한 코인이 없습니다.")
+                pass
             else:
                 for coin_name in tickers:
                     try:
@@ -57,149 +67,77 @@ def auto_buy(upbit, coin_name, intervals, investment, lines):
     #coin_name = 'KRW-BTT'
     df = generate_rate(coin_name, intervals, lines)
     validation = check_updown(df)  # dwon시, rate_env = 0에 가까울수록 구매 // up시, rate_env =
-    if validation == 'up':
-        investment = investment
-    elif validation =='down':
-        investment = investment*0.7
-    if bool(df.type[0] == 'try_buy'):
-        weight = 0
-        if np.sum(df.rate_bol_1 > 1) >= 1:
+    # validation up: 상승, down : 하락 , normal : 일반
+    if bool(df.type[0] == 'try_buy'): #& bool(np.mean(df.rsi[2:3]) < 30): # rsi:30 이하 침체 구간으로 매수
+        price = coin_buy_price(coin_name)
+        investment = investment * (1 + df.rate_env[0])
+        count = investment / price
+        weight = 0.7
+        if np.sum(df.rate_bol_1 > 3) >= 1:
+            weight = 0.8
+        elif np.sum(df.rate_bol_2 > 2) >= 1:
             weight = 0.9
-        elif np.sum(df.rate_bol_2 > 1) >= 1:
-            weight = 0.95
         elif np.sum(df.rate_env > 1) >= 1:
             weight = 1
-
-        if validation == 'up': # 상승장
-            no = 6
-            if bool(np.sum(df.next_pattern == 'up') == 3) & bool(df.next_pattern[0] == 'up'): # 다음 패턴 예측
-                print("예측 상승(약): " + coin_name)
-                no = 1
-                if bool(np.mean(df.rsi[-3:]) < 30) & bool(np.mean(df.rsi[0:1])>=30):
-                    print("침체 벗어남: " + coin_name)#30이하(침체)면 매수 / 70이상(과열) 매도
-                    no = 0
-            elif bool(np.sum(df.next_pattern == 'up') == 2) & bool(df.next_pattern[0] == 'up'):  # 다음 패턴 예측
-                print("예측 상승(약): " + coin_name)
-                no = 3
-                if bool(np.mean(df.rsi[-3:]) < 30) & bool(np.mean(df.rsi[0:1])>=30):
-                    print("침체 벗어남: " + coin_name)#30이하(침체)면 매수 / 70이상(과열) 매도
-                    no = 1
-            elif bool(np.sum(df.next_pattern == 'up') == 1) & bool(df.next_pattern[0] == 'up'):  # 다음 패턴 예측
-                print("예측 상승(약): " + coin_name)
-                no = 5
-                if bool(np.mean(df.rsi[-3:]) < 30) & bool(np.mean(df.rsi[0:1])>=30):
-                    print("침체 벗어남: " + coin_name)#30이하(침체)면 매수 / 70이상(과열) 매도
-                    no = 2
-
-            investment = investment * weight
-            price = coin_buy_price(coin_name, no)
-            count = investment / price #* df.rate_env[0]
-            excute_buy(upbit, coin_name, price, count, investment)
-        elif validation == 'down': #하락장
-            no = 8
-            if bool(np.sum(df.next_pattern == ['down', 'down', 'down', 'up']) >= 4):
-                print("예측 반등: " + coin_name)
-                no = 1
-                if bool(np.mean(df.rsi[-3:]) < 30) & bool(np.mean(df.rsi[0:1]) > 30):
-                    print("침체 탈출: " + coin_name)#30이하(침체)면 매수 / 70이상(과열) 매도
-                    no = 0
-            # 구매
-            investment = investment * weight
-            price = coin_buy_price(coin_name, no)
-            count = investment / price #* df.rate_env[0]
-            excute_buy(upbit, coin_name, price, count, investment)
-        else:
-            print(coin_name + " 은 볼린저 밴저 기준 불만족")
+        investment = investment * (1 + weight)
+        print('coin_name: ' + coin_name + '/rsi: ' + str(np.mean(df.rsi))+'/bol_1: '+str(np.mean(df.rate_bol_1))+'/bol_2: '+str(np.mean(df.rate_bol_2))+ '/env: '+ str(np.mean(df.rate_env)))
+        if bool(np.sum(df.next_pattern == 'up') >= 2) & bool(df.next_pattern[0] == 'up'): # 다음 패턴 예측
+            if validation == 'up': # 상승장
+                uweight = 2
+            elif validation == 'down': #하락장
+                uweight = 1
+            else:
+                uweight = 1.5
+        investment = max(investment * (1 + uweight), 5500)
+        count = investment / price
+        excute_buy(upbit, coin_name, price, count, investment)
     else:
-        print(str(datetime.now()) +"    "+ coin_name + " 은 구매 조건 불만족")
+        pass
 
 def auto_sell(upbit, coin_name, intervals, cutoff, benefit, lines):
+    #coin_name = 'KRW-BTT'
     df = generate_rate(coin_name, intervals, lines)
-    validation = check_updown(df)  #dwon시, rate_env = 0에 가까울수록 구매 // up시, rate_env =
-    my = f_my_coin(upbit)
-    my_balance = 0
-    if np.sum(my.coin_name == coin_name) > 0:
-        my_df = my[my.coin_name == coin_name].reset_index(drop=True)
-        my_balance = my_df.balance.astype(float)[0]
-        avg_price = my_df.avg_buy_price.astype(float)[0]
-        cur_price = df.currency[0]
-        ratio = round((cur_price-avg_price)/avg_price,3)
-        if ratio < - abs(cutoff) :
-            price = df.currency[0]
-            balance = my_balance
-            execute_sell(upbit, balance, coin_name, price)
-        elif ratio > benefit:
-            if df.type[0] =='try_sell':
-                weight = 0.5
-                alpha = 0.95
-                if np.sum(df.rate_bol_1*alpha > 1) >= 1:
-                    weight = 0.9
-                elif np.sum(df.rate_bol_2*alpha > 1) >= 1:
-                    weight = 0.95
-                elif np.sum(df.rate_env*alpha > 1) >= 1:
-                    weight = 1
-                if bool(validation == 'up'): # 상승장
-                    no = 6
-                    if bool(np.sum(df.next_pattern == 'up') == 3) & bool(df.next_pattern[0] == 'down'):
-                        no = 0
-                        if bool(np.mean(df.rsi[-3:]) > 70) & bool(np.mean(df.rsi[0:1]) <= 70):
-                            print("과열 탈출(약): " + coin_name)  # 30이하(침체)면 매수 / 70이상(과열) 매도
-                            no = 0
-                        elif bool(np.mean(df.rsi[-3:]) < 70) & bool(np.mean(df.rsi[0:1]) > 70):
-                            no = 1
-                    elif bool(np.sum(df.next_pattern == 'up') == 2) & bool(df.next_pattern[0] == 'down'):
-                        no = 0
-                        if bool(np.mean(df.rsi[-3:]) > 70) & bool(np.mean(df.rsi[0:1]) <= 70):
-                            print("과열 탈출(약): " + coin_name)  # 30이하(침체)면 매수 / 70이상(과열) 매도
-                            no = 0
-                        elif bool(np.mean(df.rsi[-3:]) < 70) & bool(np.mean(df.rsi[0:1]) > 70):
-                            no = 1
-                    elif bool(np.sum(df.next_pattern == 'up') == 2) & bool(df.next_pattern[0] == 'down'):
-                        no = 0
-                        if bool(np.mean(df.rsi[-3:]) > 70) & bool(np.mean(df.rsi[0:1]) <= 70):
-                            print("과열 탈출(약): " + coin_name) #30이하(침체)면 매수 / 70이상(과열) 매도
-                            no = 0
-                        elif bool(np.mean(df.rsi[-3:]) < 70) & bool(np.mean(df.rsi[0:1]) > 70):
-                            no = 1
-                    price =  coin_sell_price(coin_name, 2)
-                    balance = my_balance * weight
-                    execute_sell(upbit, balance, coin_name, price)
-
-                elif bool(validation == 'down'): #하락장
-                    no = 6
-                    if bool(np.sum(df.next_pattern == 'up') == 3) & bool(df.next_pattern[0] == 'down'): #하락 예측
-                        print("예측 하락(약): " + coin_name)
-                        no = 1
-                        if bool(np.mean(df.rsi[-3:]) > 70) & bool(np.mean(df.rsi[0:1]) <= 70):
-                            print("과열 탈출(약): " + coin_name)  # 30이하(침체)면 매수 / 70이상(과열) 매도
-                            no = 0
-                        elif bool(np.mean(df.rsi[-3:]) < 70) & bool(np.mean(df.rsi[0:1]) > 70):
-                            no = 0
-                    elif bool(np.sum(df.next_pattern == 'up') == 2) & bool(df.next_pattern[0] == 'down'): #하락 예측
-                        print("예측 하락(약): " + coin_name)
-                        no = 3
-                        if bool(np.mean(df.rsi[-3:]) > 70) & bool(np.mean(df.rsi[0:1]) <= 70):
-                            print("과열 탈출(약): " + coin_name)  # 30이하(침체)면 매수 / 70이상(과열) 매도
-                            no = 0
-                        elif bool(np.mean(df.rsi[-3:]) < 70) & bool(np.mean(df.rsi[0:1]) > 70):
-                            no = 1
-                    elif bool(np.sum(df.next_pattern == 'up') == 1) & bool(df.next_pattern[0] == 'down'): #하락 예측
-                        print("예측 하락(약): " + coin_name)
-                        no = 5
-                        if bool(np.mean(df.rsi[-3:]) > 70) & bool(np.mean(df.rsi[0:1]) <= 70):
-                            print("과열 탈출(약): " + coin_name)  # 30이하(침체)면 매수 / 70이상(과열) 매도
-                            no = 0
-                        elif bool(np.mean(df.rsi[-3:]) < 70) & bool(np.mean(df.rsi[0:1]) > 70):
-                            no = 1
-                    price = coin_sell_price(coin_name, 2)
-                    balance = my_balance * weight
-                    execute_sell(upbit, balance, coin_name, price)
-                else:
-                    pass
-        else:
-            print("판매 대기:"+coin_name)
+    validation = check_updown(df)  # dwon시, rate_env = 0에 가까울수록 구매 // up시, rate_env =
+    res = f_balance(upbit, coin_name)
+    balance = res.get('my_balance')
+    avg_price = res.get('avg_price')
+    cur_price = df.currency[0]
+    ratio = round((cur_price - avg_price) / avg_price, 3)
+    # validation up: 상승, down : 하락 , normal : 일반
+    print('coin_name: ' + coin_name + '/rate: '+str(ratio)+'/rsi: ' + str(np.mean(df.rsi)) + '/bol_1: ' + str(np.mean(df.rate_bol_1)) + '/bol_2: ' + str(np.mean(df.rate_bol_2)) + '/env: ' + str(np.mean(df.rate_env)))
+    price = coin_sell_price(coin_name)
+    if ratio < - abs(cutoff):
+        price = cur_price
+    elif ratio >= benefit:
+        if bool(df.type[0] == 'try_sell'): #& bool(np.mean(df.rsi > 70)>=1): # rsi:70 이상 과열 구간으로 매도
+            weight = 0.7
+            if np.sum(df.rate_bol_1 > 1) >= 1:
+                weight = 0.8
+            elif np.sum(df.rate_bol_2 > 1) >= 1:
+                weight = 0.9
+            elif np.sum(df.rate_env > 1) >= 1:
+                weight = 1
+            if bool(np.sum(df.next_pattern == 'down') >= 2) & bool(df.next_pattern[0] == 'down'): # 다음 패턴 예측
+                if validation == 'up': # 상승장
+                    balance = max(balance * weight * 0.5, balance)
+                    count = investment / price #* df.rate_env[0]
+                elif validation == 'down': #하락장
+                    balance = max(balance * weight, balance)
+                    count = investment / price #* df.rate_env[0]
+            else:
+                print(coin_name + " 은 상승 기준 불만족")
     else:
-        print('잔고에 구매된 코인 없음')
+        price = avg_price * (1 + benefit)
+    execute_sell(upbit, balance, coin_name, price)
+
+def f_balance(upbit, coin_name):
+    my = f_my_coin(upbit)
+    my_df = my[my.coin_name == coin_name].reset_index(drop=True)
+    my_balance = my_df.balance.astype(float)[0]
+    avg_price = my_df.avg_buy_price.astype(float)[0]
+    result = {'my_balance':my_balance, 'avg_price':avg_price}
+    return result
+
 
 def f_my_coin(upbit):
     df = pd.DataFrame(upbit.get_balances())
@@ -234,7 +172,7 @@ def execute_sell(upbit, balance, coin_name, price):
         price = round_price(price)
         try:
             res = upbit.sell_limit_order(coin_name, price, balance)
-            time.sleep(0.2)
+            time.sleep(0.1)
             if len(res) > 2:
                 print("***판매 요청 정보***")
                 print("코인: " + coin_name + "/ 가격: " + str(price) + "/ 수량: " + str(balance))
@@ -251,7 +189,7 @@ def execute_sell(upbit, balance, coin_name, price):
     else:
         print("판매 실패: " + coin_name + "은 판매 최소금액이 부족")
 
-def coin_buy_price(coin_name,m):
+def coin_buy_price(coin_name):
     orderbook = pyupbit.get_orderbook(coin_name)
     df_orderbook = pd.DataFrame(orderbook[0]['orderbook_units'])
     time.sleep(0.1)
@@ -262,13 +200,12 @@ def coin_buy_price(coin_name,m):
     df_orderbook['buying_YN'] = df_orderbook.apply(lambda x: x.cum_ask_size < x.cum_bid_size, axis='columns')
     check = [i for i, value in enumerate(list(df_orderbook.buying_YN)) if value == False]
     if len(check) > 0:
-        no = max(np.max(check), 0)
-    else:
-        no = m
-    price = df_orderbook.bid_price[max(no - 1, 0)]
+        no = min(max(np.min(check)-1, 0),14)
+    price = df_orderbook.bid_price[no]
     return price
 
-def coin_sell_price(coin_name,m):
+
+def coin_sell_price(coin_name):
     orderbook = pyupbit.get_orderbook(coin_name)
     df_orderbook = pd.DataFrame(orderbook[0]['orderbook_units'])
     time.sleep(0.1)
@@ -279,10 +216,8 @@ def coin_sell_price(coin_name,m):
     df_orderbook['buying_YN'] = df_orderbook.apply(lambda x: x.cum_ask_size > x.cum_bid_size, axis='columns')
     check = [i for i, value in enumerate(list(df_orderbook.buying_YN)) if value == False]
     if len(check) > 0:
-        no = max(np.max(check), 0)
-    else:
-        no = m
-    price = df_orderbook.bid_price[max(no - 1, 0)]
+        no = min(max(np.min(check) - 1, 0), 14)
+    price = df_orderbook.ask_price[0]
     return price
 
 def load_df(directory, name):
@@ -306,7 +241,7 @@ def reservation_cancel(upbit, directory, name):
             for uuid in uuids:
                 try:
                     res = upbit.cancel_order(uuid)
-                    time.sleep(0.3)
+                    time.sleep(0.1)
                     uuids.remove(uuid)
                 except:
                     pass
@@ -600,8 +535,7 @@ def generate_rate(coin_name, intervals, lines):
         df = pyupbit.get_ohlcv(coin_name, interval = interval, count = lines)
         time.sleep(0.1)
         df['diff'] = df['close'] - df['open']
-        rsi = np.sum(df['diff'][df['diff'] >= 0]) / (
-                    np.sum(df['diff'][df['diff'] >= 0]) + abs(np.sum(df['diff'][df['diff'] < 0]))) * 100
+        rsi = np.sum(df['diff'][df['diff'] >= 0]) / (np.sum(df['diff'][df['diff'] >= 0]) + abs(np.sum(df['diff'][df['diff'] < 0]))) * 100
         rs = np.mean(df['diff'][df['diff'] >= 0]) / abs(np.mean(df['diff'][df['diff'] < 0]))
 
         df = df[0:len(df)-1]
@@ -642,8 +576,8 @@ def generate_rate(coin_name, intervals, lines):
     df = pd.DataFrame(res)
     return df
 
-def coin_trade(upbit, tickers, investment, intervals, cutoff, benefit, lines):
-    th1 = Process(target=execute_buy_schedule, args=(upbit, tickers, intervals, investment, lines))
+def coin_trade(upbit, investment, intervals, cutoff, benefit, lines):
+    th1 = Process(target=execute_buy_schedule, args=(upbit, intervals, investment, lines))
     th2 = Process(target=execute_sell_schedule, args=(upbit, intervals, cutoff, benefit, lines))
     result = Queue()
     th1.start()
@@ -657,12 +591,10 @@ if __name__ == '__main__':
     secret_key = 'wF6x0CPDzwYFfZgI2wnmhKNBr99WmiXe0QWyqxGS'  # ''
     upbit = pyupbit.Upbit(access_key, secret_key)
     # intervals = ["day", "minute240", "minute60", "minute30", "minute15", 'minute10', 'minute5']
-    intervals = ["minute1", "minute5", "minute15", "minute30"]
-    investment = 1000000
-    tickers = ['KRW-BTC','KRW_RFP'] # 선택
-    # tickers = pyupbit.get_tickers(fiat="KRW")  # 전체
+    intervals = ["minute1", "minute3", "minute5", "minute10"]
+    investment = 50000
     cutoff = 0.005
-    benefit = 0.02
-    lines = 20
-    coin_trade(upbit, tickers, investment, intervals, cutoff, benefit, lines)
+    benefit = 0.015
+    lines = 15
+    coin_trade(upbit, investment, intervals, cutoff, benefit, lines)
 # input 1번 불러오면 되는 것들
