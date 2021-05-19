@@ -84,11 +84,15 @@ def period_end_date(intervals):
     return result
 
 def f_coef_macd_confirm(bdf):
-    bdf = bdf[-10:]
-    updown_rate = f_reg_coef(bdf, 'close')
+    updown_close = f_reg_coef(bdf, 'close')
+    updown_rate_high = f_reg_coef(bdf, 'high')
+    updown_rate_low = f_reg_coef(bdf, 'low')
+    updown_check = (updown_close>0) & (updown_rate_low>0) &  (updown_rate_high>0)
+    updown_rate_volume = f_reg_coef(bdf, 'rate_volume')
     avg_close = np.mean(bdf.close)
     tot_volume = sum(bdf.volume)
-    return updown_rate, avg_close, tot_volume
+    over_volume = np.sum(bdf.rate_volume>1)
+    return updown_check, updown_rate_volume, avg_close, tot_volume, over_volume
 
 def chart_name(df_1):
     type = df_1.color[0]
@@ -135,18 +139,10 @@ def chart_name(df_1):
 
 def box_create(df_1) :
     df_1 = df_1.reset_index(drop=True)
-    if bool(df_1.open[0] <= df_1.close[0]):
+    if (df_1.open[0] <= df_1.close[0]):
         df_1['color'] = 'red'
     else:
         df_1['color'] = 'blue'
-    df_1['length_high'] = df_1.high[0] - max(df_1.close[0], df_1.open[0])
-    df_1['length_low'] = min(df_1.close[0], df_1.open[0]) - df_1.low[0]
-    df_1['length_mid'] = max(df_1.close[0], df_1.open[0]) - min(df_1.close[0], df_1.open[0])
-    df_1['rate_mid'] = np.abs(df_1.close[0] - df_1.open[0]) / (df_1.open[0] + df_1.close[0]) * 2
-    df_1['rate_high'] = df_1['length_high'] / (max(df_1.close[0], df_1.open[0]) + df_1.high[0]) * 2
-    df_1['rate_low'] = df_1['length_low'] / (min(df_1.close[0], df_1.open[0]) + df_1.low[0]) * 2
-    name = chart_name(df_1)
-    df_1['chart_name'] = name
     return df_1
 
 def box_information(df):
@@ -166,6 +162,7 @@ def box_information(df):
 
 def f_reg_coef(df,name):
     #name = 'open'
+    df = df[-5:].reset_index(drop=True)
     y_bol_1 = df[name]
     x_arr = []
     y_arr_bol_1 = []
@@ -197,12 +194,16 @@ def f_bol(df):
     return bol_median, bol_std, env_higher, env_lower
 
 def f_macd(df, a, b, c):
-    emaa = f_ema(df, a)[-c*2:]
-    emab = f_ema(df, b)[-c*2:]
-    macd = [(i - j)/i for i, j in zip(emaa, emab)][-c:]
-    signal = f_macd_signal(macd, c)[-c:]
+    # a = 12
+    # b = 26
+    # c = 9
+    emaa = f_ema(df, a)[-60:]
+    emab = f_ema(df, b)[-60:]
+    macd = [(i - j)/j for i, j in zip(emaa, emab)][-60:]
+    signal = f_macd_signal(macd, c)[-60:]
     oscillator = [i - j for i, j in zip(macd, signal)]
-    return oscillator[-1]
+    result = pd.DataFrame([a for a in zip(oscillator,macd, signal)],columns=['oscillator','macd', 'signal'],index = range(len(oscillator)))
+    return result
 
 def f_ema(df, length):
     #df = df2
@@ -220,7 +221,7 @@ def f_ema(df, length):
 def f_macd_signal(macd, length):
     s = macd[0:length]
     signal = round(np.mean(s), 0)
-    macd = macd[-9:]
+    macd = macd[-60:]
     n = np.count_nonzero(macd)
     res = [signal]
     for i in range(np.count_nonzero(macd)):
@@ -235,95 +236,174 @@ def f_vol(df):
         v = v + res
     return v
 def f_oscillator(df):
-    oscillator9 = f_macd(df, 12, 26, 9)  ################# check1
-    oscillator6 = f_macd(df, 9, 20, 6)  ################# check1
-    oscillator3 = f_macd(df, 6, 12, 3)  ################# check1
-    osc_df = pd.DataFrame([oscillator9, oscillator6, oscillator3], columns=['oscillator'])
-    oscillator = oscillator3
-    coef_oscillator = f_reg_coef(osc_df, 'oscillator')
-    return oscillator, coef_oscillator
-def check_buy_case(df):
-    df = df[-5:].reset_index(drop=True)
-    idx = len(df)
+    oscillator = f_macd(df, 12, 26, 9)  ################# check1
+    min_oscillator = np.min(oscillator.oscillator)
+    max_oscillator = np.max(oscillator.oscillator)
+    coef_oscillator = f_reg_coef(oscillator, 'oscillator')
+    coef_macd = f_reg_coef(oscillator, 'macd')
+    coef_signal = f_reg_coef(oscillator, 'signal')
+    oscillator = oscillator[-1:].reset_index(drop=True).oscillator[0]
+    return oscillator, coef_macd, coef_signal, coef_oscillator, min_oscillator, max_oscillator
+
+def check_buy_case(df, min, max):
+    df = df[0:len(df)-1]
+    df = df.reset_index(drop=True)
+    rate = (df.close[4] - df.open[0]) / df.open[0]
     result = False
-    if bool(np.sum(df.color == 'blue')>=3) & bool(df.chart_name[idx-1] in ['stone_cross','lower_tail_pole_umbong']):
-        result = True
-    elif bool(np.sum(df.color == 'blue')>=3) & bool(df.chart_name[idx-1] in ['dragonfly_cross', 'upper_tail_pole_yangong']):
-        result = True
-    elif bool(df.chart_name[idx-1] in ['pole_yangbong','longbody_yangbong']):
-        result = True
-    elif bool(np.sum(df.color == 'blue')>=3) & bool(df.chart_name[idx-1] == 'pole_umbong'):
-        result = True
-    elif bool(np.sum(df.color == 'blue')>=3) & bool(df.chart_name[idx-1] in ['doji_cross','spinning_tops']):
+    temp1 = df[-1:].reset_index(drop=True)
+    temp2 = df[-2:].reset_index(drop=True)
+    temp3 = df[-3:].reset_index(drop=True)
+    temp4 = df[-4:].reset_index(drop=True)
+    temp5 = df[-5:].reset_index(drop=True)
+    # 3분봉 분석
+    #case1 : 지속적 하락 & 값에 큰 변화 없음
+    criteria1_1 = np.min(temp1.high[0]-temp1.low[0])/temp1.low[0]
+    criteria1_2 = np.min(temp2.high[0]-temp2.low[0])/temp2.low[0]
+    criteria1_3 = np.min(temp3.high[0]-temp3.low[0])/temp3.low[0]
+    criteria1_4 = np.min(temp4.high[0]-temp4.low[0])/temp4.low[0]
+    criteria1_5 = np.min(temp5.high[0]-temp5.low[0])/temp5.low[0]
+    criteria1 = (criteria1_1 <= criteria1_2 <= criteria1_3 <= criteria1_4 <= criteria1_5) & (abs(rate) < 0.02)
+
+    #case2 : 큰상승 세력 vs 강력 저항선
+    criteria2_1 = (temp1.high[0]-temp1.open[0] == 0) & (temp1.low[0] < np.min(df.low)) & (temp1.color[0] == 'blue')
+    criteria2_2 = (temp2.high[0] < max) & ((temp2.open[0]-temp2.low[0])/temp2.low[0] < abs(0.001)) & (temp2.color[0] == 'red')
+    criteria2 = criteria2_1 & criteria2_2 & (np.sum(df[-5:].color == "red")>=2) & (np.sum(df[-5:].color == "blue")>=2)
+
+    #case3 : 강력한 하락 & 반등
+    criteria3_1 = ((temp1.open[0]-temp1.close[0]) >= (temp1.close[0] - temp1.low[0])*2) * (temp2.color[0] == 'blue')
+    criteria3_2 = temp1.high[0] >= temp1.high[0]
+    criteria3_3 = np.sum(df[-4:].color == 'blue') == 4
+    criteria3_4 = (temp1.high[0] - temp1.open[0])*1.3 >= (temp1.close[0] - temp1.low[0])
+    criteria3 = criteria3_1 & criteria3_2 & criteria3_3 & criteria3_4
+
+    #case4 : 강력한 하락 & 잠시 반등 - 2%
+    criteria4_1 = (np.max(df[-5:].high) > max*0.95) & (np.min(df[-5:].open) <= min)
+    criteria4_2 = ((temp1.close[0] - temp1.low[0])/temp1.low[0] >= 0.005) & ((temp1.open[0] - temp1.close[0])/temp1.close[0] >= 0.005) & (temp1.high[0] <= temp2.close[0])
+    criteria4 = criteria4_1 & criteria4_2
+
+    #case5 : 반등후 하락 & 다시 상승
+    criteria5_1 = (temp1.high[0] >= temp2.high[0]) & ((temp1.high[0] - temp1.open[0]) >= (temp1.close[0] - temp1.low[0])*1.5) & ((temp1.open[0] - temp1.close[0])*1.5 <= (temp1.close[0] - temp1.low[0]))
+    criteria5_2 = ((temp2.high[0] - temp2.open[0]) >= (temp2.open[0] - temp2.close[0]) * 2) & (temp2.low[0] > temp1.close[0])
+    criteria5_3 = (np.sum(df[-4:].color=='blue')==4) & (temp5.color[0]=='red') & ((temp5.open[0]-temp5.close[0])/temp5.close[0] <= 0.0001)
+    criteria5 = criteria5_1 & criteria5_2 & criteria5_3
+
+    #case6 : 하락증가 & 반등
+    criteria6_1 = (temp1.high[0] > temp2.high[0]) & (temp2.close[0] == temp1.open[0]) & (temp1.close[0] <= temp2.low[0]) & ((temp1.close[0] - temp1.low[0])*1.5 <= (temp1.high[0] - temp1.open[0]))
+    criteria6_2 = (temp3.open[0] == temp3.high[0]) & (temp3.color[0] == 'blue')
+    criteria6_3 = (temp4.open[0] == temp4.close[0]) & (temp4.color[0] == 'blue')
+    criteria6_4 = (temp5.open[0] == temp5.close[0]) & (temp5.color[0] == 'blue')
+    criteria6 = criteria6_1 & criteria6_2 & criteria6_3 & criteria6_4
+
+    #case7 : 점핑 하락
+    criteria7_1 = (temp1.open[0] == temp2.low[0]) & (temp1.open[0]==temp1.close[0])
+    criteria7_2 = (temp2.open[0] == temp2.high[0]) & ((temp2.open[0]-temp2.close[0])*1.5 <= (temp2.close[0]-temp2.low[0]))
+    criteria7_3 = np.sum(df[-5:].color == "blue") >= 4
+    criteria7 = criteria7_1 & criteria7_2 & criteria7_3
+    if (criteria1 | criteria2 | criteria3 | criteria4 | criteria5 | criteria6| criteria7):
         result = True
     return result
-    bdf["coef_oscillator"] = coef_oscillator
-    bdf["coef_open"] = coef_open
-    bdf["rsi"] = rsi
-    bdf["bol_lower1"] = bol_lower1
-    bdf["bol_lower15"] = bol_lower15
-    bdf["bol_lower2"] = bol_lower2
-    bdf["bol_median"] = bol_median
-    bdf["bol_higher1"] = bol_higher1
-    bdf["bol_higher15"] = bol_higher15
-    bdf["bol_higher2"] = bol_higher2
-    bdf["env_lower"] = env_lower
-    bdf["env_higher"] = env_higher
-    #거래량 많고, red 유형
-    result = bdf
-    return result
-def check_sell_case(df):
-    df = df[-5:].reset_index(drop=True)
-    idx = len(df)
+
+def check_sell_case(df,max,min):
+    df = df.reset_index(drop=True)
+    rate = (df.close[4] - df.open[0]) / df.open[0]
     result = False
-    if bool(np.sum(df.color == 'red') >= 3) & bool(
-            df.chart_name[idx - 1] in ['stone_cross', 'lower_tail_pole_umbong', 'upper_tail_pole_umbong']):
-        result = True
-    elif bool(np.sum(df.color == 'red') >= 3) & bool(
-            df.chart_name[idx - 2] in ['longbody_yangbong', 'shortbody_yangbong']):
-        result = True
-    elif bool(np.sum(df.color == 'red') >= 3) & bool(df.chart_name[idx - 1] in ['spinning_tops', 'doji_cross']):
+    temp1 = df[-1:].reset_index(drop=True)
+    temp2 = df[-2:].reset_index(drop=True)
+    temp3 = df[-3:].reset_index(drop=True)
+    temp4 = df[-4:].reset_index(drop=True)
+    temp5 = df[-5:].reset_index(drop=True)
+    #3분짜리
+    #강력한 상승 후 원상 복귀
+    criteria1_1 = (rate >= 0.02) & (temp1.high[0]==temp1.close[0]) & (temp1.low[0] <= temp2.open[0])
+    criteria1_2 = (temp2.open[0] == temp2.low[0]) & (temp2.high[0] > temp1.high[0])
+    criteria1_3 = (temp3.close[0] < temp2.open[0]) & (temp4.close[0] < temp3.open[0]) & (temp5.close[0] < temp4.open[0])
+    criteria1 = criteria1_1 & criteria1_2 & criteria1_3
+
+    # 순간적인 급등 후 급락
+    criteria2_1 = (rate >= 0.02) & (temp1.high[0] > max)
+    criteria2_2 = (temp2.high[0] < temp1.close[0]) & (temp2.open[0] == temp2.low[0])
+    criteria2_3 = temp3.high[0] < temp2.close[0]
+    criteria2 = criteria2_1 & criteria2_2 & criteria2_3
+
+    # 순간적인 급등 후 하락2 (역망치형)
+    criteria3_1 = (rate >= 0.02) & (temp1.close[0] == temp1.high[0]) & ((temp1.open[0]-temp1.low[0])/temp1.low[0] >= 0.01)
+    criteria3_2 = (temp2.open[0] == temp2.close[0]) & (temp2.open[0] < temp1.low[0])
+    criteria3 = criteria3_1 & criteria3_2
+
+    # 순간 급등 후 하락3
+    criteria4_1 = (temp1.open[0] == temp2.high[0]) & (temp1.color[0] == 'blue') & ((temp1.high[0] - temp1.open[0])/temp1.open[0] >=0.02)
+    criteria4_2 = (temp2.close[0] - temp2.open[0])/temp2.open[0] >= 0.02
+    criteria4 = criteria4_1 & criteria4_2
+
+    ## 1,2번째 역망치
+    criteria5_1 = (temp1.close[0] == temp1.high[0]) & (((temp1.open[0]-temp1.low[0])/temp1.low[0]) >= ((temp1.close[0] - temp1.open[0])/temp1.open[0]))
+    criteria5_2 = (temp2.close[0] == temp2.high[0]) & (((temp2.open[0]-temp2.low[0])/temp2.low[0]) >= ((temp2.close[0] - temp2.open[0])/temp2.open[0]))
+    criteria5_3 = np.sum(df[-5:].color=='red') >= 3
+    criteria5 = criteria5_1 & criteria5_2 & criteria5_3
+
+    # 2,3번째 역망치
+    criteria6_1 = (temp1.high[0] <= temp2.close[0]) & (temp1.low[0] > min)
+    criteria6_2 = (((temp2.open[0]-temp2.low[0])/temp2.low[0]) >= ((temp2.close[0] - temp2.open[0])/temp2.open[0]))
+    criteria6_3 = (((temp3.open[0]-temp3.low[0])/temp3.low[0]) >= ((temp3.close[0] - temp3.open[0])/temp3.open[0]))
+    criteria6 = criteria6_1 & criteria6_2 & criteria6_3
+
+    # 1번째 역망치
+    criteria7_1 = (temp1.close[0] == temp1.high[0]) & (
+                ((temp1.open[0] - temp1.low[0]) / temp1.low[0]) >= ((temp1.close[0] - temp1.open[0]) / temp1.open[0]))
+    criteria7_2 = (rate>=0.005) & (np.sum(df[-5:].color=='red')>=4)
+    criteria7 = criteria7_1 & criteria7_2
+
+    # 1프로 이상 증가는
+    criteria8_1 = (temp1.open[0] == temp1.close[0]) & (temp1.high[0] - temp1.close[0] < temp1.open[0] - temp1.low[0])
+    criteria8_2 = (rate >= 0.01) & (np.sum(df[-5:].color=='red')>=4)
+    criteria8 = criteria8_1 & criteria8_2
+    if (criteria1 | criteria2 | criteria3| criteria4 | criteria5 | criteria6 | criteria7 | criteria8):
         result = True
     return result
 def generate_rate_minute(coin_name, interval):
     #coin_name = 'KRW-ETH'
-    #interval = 'minute10'
+    #interval = 'minute1'
     df = []
     while len(df)==0:
-        df = pyupbit.get_ohlcv(coin_name, interval=interval, count=51)
-    df = df[:-1]
+        df = pyupbit.get_ohlcv(coin_name, interval=interval, count=100)
+    #df = df[:-1]
     time.sleep(0.1)
-    rsi_df = df[-5:]
+    rsi_df = df[-11:]
     rsi = f_rsi(rsi_df)
     bol_median, bol_std, env_higher, env_lower= f_bol(rsi_df)
-    oscillator, coef_oscillator = f_oscillator(df)
+    oscillator, coef_macd, coef_signal, coef_oscillator, min_oscillator, max_oscillator = f_oscillator(df)
 
     box = box_information(df)
-    bdf = box[-20:].reset_index(drop=True)
-    cur_price = []
-    while len(cur_price) == 0:
-        try:
-            cur_price = [pyupbit.get_current_price(coin_name)]
-        except:
-            print(coin_name +"의 현재가 조회 실패")
-        time.sleep(0.1)
-    cur_price = cur_price[0]
-    updown_rate, avg_close, tot_volume = f_coef_macd_confirm(bdf)  ### check3
-    buy_check = check_buy_case(bdf)
-    buy_check2 = (oscillator < 0) & (bdf[-1:].reset_index(drop=True).color[0]=="blue") & (coef_oscillator > 0)
-    sell_check = check_sell_case(bdf)
+    bdf = box[-11:].reset_index(drop=True)
+    cur_price = get_currency(coin_name)
+
+    updown_check, updown_rate_volume, avg_close, tot_volume, over_volume = f_coef_macd_confirm(bdf)  ### check3
     benefit = bol_std / bol_median / 2
     position = 0.5 + (cur_price - bol_median) / bol_median
     tot_trade = avg_close * tot_volume
+    min = bol_median - 1.5 * bol_std
+    max = bol_median + 1.5 * bol_std
 
+    buy_check = check_buy_case(bdf, min, max)
+    buy_check = buy_check   # type1. 구매 차트 모형
+    buy_check2 = buy_check & (cur_price < bol_median - 2 * bol_std) # 하락장일때 볼벤 하단 구매
+    buy_check3 = buy_check & (oscillator <= min_oscillator * 0.8) & (np.sum([(coef_macd > 0), (coef_signal > 0)])>=2) # macd 이용 구매
+    buy_check4 = buy_check & (np.min(df[-20:].close) > bol_median) & (bol_median - 0.1 * bol_std < cur_price < bol_median + 0.1 * bol_std) & updown_check # 상승장일때, 볼벤 미디엄 위에 구매
+    buy_check5 = buy_check & (rsi < 30) # rsi 기준 구매
+    sell_check = check_sell_case(bdf, max,min)
     result = {'coin_name':coin_name, 'interval':interval,
               'cur_price':cur_price, 'benefit':benefit,
               'position':position, 'tot_trade':tot_trade,
+              'min_oscillator': min_oscillator, 'max_oscillator': max_oscillator,
+                'over_volume': over_volume,
               'buy_check': buy_check, 'sell_check':sell_check,
-              'buy_check2':buy_check2,
-              'updown_rate':updown_rate, 'rsi':rsi,
+              'buy_check2':buy_check2, 'buy_check3':buy_check3,
+              'buy_check4':buy_check4, 'buy_check5': buy_check5,
+              'coef_macd':coef_macd, 'coef_signal':coef_signal,
+              'updown_check':updown_check, 'rsi':rsi,
               'avg_close':avg_close, 'tot_volume':tot_volume,
               'oscillator':oscillator, 'coef_oscillator':coef_oscillator,
+              'min' : min, 'max':max,
               'bol_median':bol_median, 'bol_std':bol_std,
               'env_higher':env_higher, 'env_lower':env_lower}
     return result
@@ -348,22 +428,28 @@ def merge_df(df, directory, name):
         df.drop_duplicates(subset=None, keep='first', inplace=True, ignore_index=True)
         df.to_json(json_file, orient='table')
     else:
-        os.remove(json_file)
+        try:
+            os.remove(json_file)
+        except:
+            print("제거error: "+ json_file)
     return df
+
 
 def execute_search_schedule(search_intervals, sec):
     while True:
         try:
             os.remove('temp/temp.json')
         except:
-            print("선택된 구매 코인 없음")
+            pass
+
         tickers = pyupbit.get_tickers(fiat="KRW")
+        #coin_name = "KRW-SRM"
         for coin_name in tickers:
             res = []
-            # search_intervals = ['minute30']
+            # search_intervals = ['minute1','minute3','minute5','minute10', 'minute15', 'minute30','minute60', 'minute240', 'day']
             for interval in search_intervals:
                 #coin_name = tickers[0]
-                #interval = intervals[0]
+                #interval = search_intervals[0]
                 try:
                     df = generate_rate_minute(coin_name, interval)
                     res.append(df)
@@ -371,27 +457,30 @@ def execute_search_schedule(search_intervals, sec):
                 except:
                     pass
             df_1 = pd.DataFrame(res)
-            #if np.sum(df_1.buy_check) >= len(df_1):
-            df_2 = df_1[-1:].reset_index(drop=True)
-            merge_df(df_2, 'temp', 'temp.json')
-                #print(str(datetime.now()) + "    구매 후보로 선정된 코인: " + ', '.join(df_2.coin_name))
+            merge_df(df_1, 'temp', 'temp.json')
+            #print(str(datetime.now()) + "    구매 후보로 선정된 코인: " + ', '.join(df_2.coin_name))
         load = []
-        while len(load) == 0:
-            load = load_df('temp', 'temp.json')
-        tot_trade = np.sum(load['tot_trade'])
-        load['tot_trade_rate'] = load['tot_trade'] / tot_trade
-        load['validation']= (load['benefit'] * (1-load['position'])) * load['tot_trade_rate']
+        load = load_df('temp', 'temp.json')
+        if len(load) > 0:
+            tot_trade = np.sum(load['tot_trade'])
+            load['tot_trade_rate'] = load['tot_trade'] / tot_trade
+            load['validation']= (load['benefit'] * (1-load['position'])) * load['tot_trade_rate']
 
-        criteria = (load.sell_check==False) & (load.oscillator < 0) & (load.benefit > 0.002) & (load.coef_oscillator > 0) & (load.updown_rate > 0)
-        #load1 = load[criteria].sort_values('tot_trade', ascending=False).reset_index(drop=True)
-        load2 = load[criteria].sort_values('coef_oscillator', ascending=False).reset_index(drop=True)
-        load = load2[:min(5,len(load2))]
-        try:
-            os.remove('temp/temp.json')
-        except:
-            print("선택된 구매 코인 없음")
-        merge_df(load, 'buy_selection_coin', 'buy_selection_coin.json')
-        time.sleep(sec)
+            criteria = load.buy_check & (load.sell_check == False) & (load.over_volume >= 1)
+            load1 = load.sort_values('tot_trade', ascending=False).reset_index(drop=True)
+            #load2 = load[criteria].sort_values('validation', ascending=False).reset_index(drop=True)
+            a = np.min([10, len(load1)])
+            load = load1[:a]
+            try:
+                os.remove('temp/temp.json')
+            except:
+                print("선택된 구매 코인 없음")
+            try:
+                os.remove('buy_selection_coin/buy_selection_coin.json')
+            except:
+                pass
+            merge_df(load, 'buy_selection_coin', 'buy_selection_coin.json')
+            time.sleep(sec)
 
 def load_df(directory, name):
     json_file = directory + '/' + name
@@ -414,46 +503,7 @@ def reservation_cancel(upbit, reserv_list):
         print("모든 예약 취소 : 성공")
     else:
         pass
-def f_weight(coin_name, price):
-    weight = 0.3
-    add_weight = 0.1
-    df = pd.DataFrame(generate_rate_minute(coin_name, "minute1"), index=[0])
-    criteria = (df.bol_median[0] - 1.5 * df.bol_std[0] > price) & (df.buy_check[0])
-    if criteria:
-        weight = 0.3 + add_weight
-        df = pd.DataFrame(generate_rate_minute(coin_name, "minute3"), index=[0])
-        criteria = (df.bol_median[0] - 1.5 * df.bol_std[0] > price) & (df.buy_check[0])
-        if criteria:
-            weight = weight + add_weight
-            df = pd.DataFrame(generate_rate_minute(coin_name, "minute5"), index=[0])
-            criteria = (df.bol_median[0] - 1.5 * df.bol_std[0] > price) & (df.buy_check[0])
-            if criteria:
-                weight = weight + add_weight
-                df = pd.DataFrame(generate_rate_minute(coin_name, "minute10"), index=[0])
-                criteria = (df.bol_median[0] - 1.5 * df.bol_std[0] > price) & (df.buy_check[0])
-                if criteria:
-                    weight = weight + add_weight
-                    df = pd.DataFrame(generate_rate_minute(coin_name, "minute20"), index=[0])
-                    criteria = (df.bol_median[0] - 1.5 * df.bol_std[0] > price) & (df.buy_check[0])
-                    if criteria:
-                        weight = weight + add_weight
-                        df = pd.DataFrame(generate_rate_minute(coin_name, "minute30"), index=[0])
-                        criteria = (df.bol_median[0] - 1.5 * df.bol_std[0] > price) & (df.buy_check[0])
-                        if criteria:
-                            weight = weight + add_weight
-                            df = pd.DataFrame(generate_rate_minute(coin_name, "minute60"), index=[0])
-                            criteria = (df.bol_median[0] - 1.5 * df.bol_std[0] > price) & (df.buy_check[0])
-                            if criteria:
-                                weight = weight + add_weight
-                                df = pd.DataFrame(generate_rate_minute(coin_name, "minute120"), index=[0])
-                                criteria = (df.bol_median[0] - 1.5 * df.bol_std[0] > price) & (df.buy_check[0])
-                                if criteria:
-                                    weight = weight + add_weight
-                                    df = pd.DataFrame(generate_rate_minute(coin_name, "minute240"), index=[0])
-                                    criteria = (df.bol_median[0] - 1.5 * df.bol_std[0] > price) & (df.buy_check[0])
-                                    if criteria:
-                                        weight = weight + add_weight
-    return df, weight
+
 def coin_buy_price(coin_name):
     #coin_name = 'KRW-BTC'
     orderbook = pyupbit.get_orderbook(coin_name)
@@ -466,7 +516,8 @@ def coin_buy_price(coin_name):
     check = [i for i, value in enumerate(df_orderbook.buying_YN.to_list()) if value == False]
     no = 0
     if len(check) > 0:
-        no = min(max(np.min(check)-1, 0),14)
+        x = np.max([np.min(check)-1, 0])
+        no = np.min([x,14])
     price = df_orderbook.bid_price[no]
     return price
 def f_my_coin(upbit):
@@ -480,12 +531,6 @@ def f_my_coin(upbit):
     return df
 def excute_buy(upbit, coin_name, price, count):
     res = {'uuid':''}
-    my = f_my_coin(upbit)
-    if (coin_name in my.coin_name):
-        my_df = my[my.coin_name == coin_name].reset_index(drop=True)
-        avg_price = my_df.avg_buy_price.astype(float)[0]
-        if (price < avg_price):
-            price = price * 0.95
     price = round_price(price)
 
     if price * count <= 5000:
@@ -494,6 +539,7 @@ def excute_buy(upbit, coin_name, price, count):
         try:
             res = upbit.buy_limit_order(coin_name, price, count)
             if len(res) > 2:
+                print("*******************")
                 print("*** 구매 요청 성공" + str(res))
         except:
             print("구매 실패")
@@ -514,58 +560,96 @@ def coin_buy_price(coin_name):
     price = df_orderbook.bid_price[no]
     return price
 
-def auto_buy(upbit, coin_name, buy_interval, investment):
+def auto_buy(upbit, coin_name, investment):
     #coin_name = 'KRW-ADA'
+    #coin_name = 'KRW-BTC'
     #df = generate_rate(coin_name, intervals, lines)
     price = pyupbit.get_current_price(coin_name)
-    df, weight = f_weight(coin_name,price)
-    df = pd.DataFrame(generate_rate_minute(coin_name, buy_interval), index=[0])
+
+    res = {'uuid': ''}
+    interval = "minute3"
+    df = pd.DataFrame(generate_rate_minute(coin_name, interval), index=[0])
     criteria1 = df.buy_check[0]
-    criteria2 = (df.coef_oscillator[0] > 0) & ((df.buy_check[0]) | (df.buy_check2[0]))
-    criteria3 = (df.bol_median[0] - 2 * df.bol_std[0] > price) & ((df.buy_check[0]) | (df.buy_check2[0]))
-    res = {'uuid':''}
+    criteria2 = df.buy_check2[0]
+    criteria3 = df.buy_check3[0]
+    criteria4 = df.buy_check4[0]
+    criteria5 = df.buy_check5[0]
+
     type = "구매없음"
+    price = coin_buy_price(coin_name)
     if criteria1 :
-        type = "구매1"
-        investment = investment * weight
-        price = coin_buy_price(coin_name)
+        type = "CHART"
     elif criteria2:
-        type = "구매2"
-        investment = investment * weight
+        type = "(하)볼벤"
     elif criteria3:
-        type = "구매3"
-        investment = investment
+        type = "MACD"
+    elif criteria4:
+        type = "(상)볼벤"
+    elif criteria5:
+        type = "RSI"
     else:
         pass
-    if type != "구매없음":
-        count = investment / price
-        res = excute_buy(upbit, coin_name, price, count)
-        print(str(datetime.now()) + "    (" + type + ") 코인: " + coin_name)
-    return res
 
-def execute_buy_schedule(access_key, secret_key, buy_interval, max_investment):
+    if type != "구매없음":
+        if my_coin_check(upbit, coin_name):
+            pass
+        else:
+            if (df.bol_median[0] - 2 * df.bol_std[0] > price):
+                count = investment / price
+                res = excute_buy(upbit, coin_name, price, count)
+            else:
+                pass
+        print(str(datetime.now()) + "    (" + type + ") 코인: " + coin_name)
+        print("price: " + str(
+        round(price, 2)) + "(" + str(round(df['min'][0], 2)) + " ~ " + str(round(df['max'][0], 2))
+          + ") / cri1: " + str(criteria1) + " / cri2: " + str(criteria2) + " / cri3: " + str(
+        criteria3) + " / cri4: " + str(criteria4) + " / cri5: " + str(criteria5))
+
+    return res
+def get_currency(coin_name):
+    cur_price = []
+    while len(cur_price) == 0:
+        try:
+            cur_price = [pyupbit.get_current_price(coin_name)]
+        except:
+            print(coin_name +"의 현재가 조회 실패")
+        time.sleep(0.1)
+    cur_price = cur_price[0]
+    return cur_price
+def get_money(upbit):
+    money = []
+    while len(money) == 0:
+        try:
+            money = [float(pd.DataFrame(upbit.get_balances())['balance'][0])]
+        except:
+            pass
+    money = money[0]
+    return money
+def execute_buy_schedule(access_key, secret_key, tickers, max_investment):
     upbit = pyupbit.Upbit(access_key, secret_key)
     while True:
-        money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
-        investment = min(money * 0.2, max_investment)
+        money = get_money(upbit)
+        investment = np.min([money * 0.7, max_investment])
         while money > 5000:
             reserv_list = []
-            tickers = []
-            load = []
-            while len(load) == 0:
-                load = load_df('buy_selection_coin', 'buy_selection_coin.json')
-            load = load.sort_values('tot_volume', ascending=False).reset_index()
-            tickers = list(set(load.coin_name))
+            if len(tickers)==0:
+                load = []
+                while len(load) == 0:
+                    load = load_df('buy_selection_coin', 'buy_selection_coin.json')
+                    time.sleep(1)
+                load = load.sort_values('tot_volume', ascending=False).reset_index()
+                tickers = list(set(load.coin_name))
             print("선정된 코인: "+ str(tickers))
             res = []
             for coin_name in tickers:
                 #coin_name = tickers[0]
-                res = auto_buy(upbit, coin_name, buy_interval, investment)
+                res = auto_buy(upbit, coin_name, investment)
                 uuid = res.get('uuid')
                 if uuid != '':
                     reserv_list.append(uuid)
                 time.sleep(0.1)
-            time.sleep(5)
+            time.sleep(1)
+            print("구매 탐색중입니다.")
             reservation_cancel(upbit, reserv_list)
 
 def execute_sell(upbit, balance, coin_name, price):
@@ -578,31 +662,7 @@ def execute_sell(upbit, balance, coin_name, price):
     except:
         pass
     return res
-def f_weight_balance(coin_name):
-    weight = 0.7
-    add_weight = 0.05
-    df = pd.DataFrame(generate_rate_minute(coin_name, "minute1"), index=[0])
-    if (df.oscillator[0] > 0) & (df.coef_oscillator[0] < 0):
-        weight = 0.7
-        df = pd.DataFrame(generate_rate_minute(coin_name, "minute3"), index=[0])
-        if (df.oscillator[0] > 0) & (df.coef_oscillator[0] < 0):
-            weight = weight + add_weight
-            df = pd.DataFrame(generate_rate_minute(coin_name, "minute5"), index=[0])
-            if (df.oscillator[0] > 0) & (df.coef_oscillator[0] < 0):
-                weight = weight + add_weight
-                df = pd.DataFrame(generate_rate_minute(coin_name, "minute10"), index=[0])
-                if (df.oscillator[0] > 0) & (df.coef_oscillator[0] < 0):
-                    weight = weight + add_weight
-                    df = pd.DataFrame(generate_rate_minute(coin_name, "minute30"), index=[0])
-                    if (df.oscillator[0] > 0) & (df.coef_oscillator[0] < 0):
-                        weight = weight + add_weight
-                        df = pd.DataFrame(generate_rate_minute(coin_name, "minute60"), index=[0])
-                        if (df.oscillator[0] > 0) & (df.coef_oscillator[0] < 0):
-                            weight = weight + add_weight
-                            df = pd.DataFrame(generate_rate_minute(coin_name, "minute120"), index=[0])
-                            if (df.oscillator[0] > 0) & (df.coef_oscillator[0] < 0):
-                                weight = weight + add_weight
-    return df, weight
+
 def coin_sell_price(coin_name):
     orderbook = pyupbit.get_orderbook(coin_name)
     df_orderbook = pd.DataFrame(orderbook[0]['orderbook_units'])
@@ -614,60 +674,85 @@ def coin_sell_price(coin_name):
     df_orderbook['buying_YN'] = df_orderbook.apply(lambda x: x.cum_ask_size > x.cum_bid_size, axis='columns')
     check = [i for i, value in enumerate(df_orderbook.buying_YN.to_list()) if value == False]
     if len(check) > 0:
-        no = min(max(np.min(check) - 1, 0), 14)
+        no = np.min([np.max([np.min(check) - 1, 0]), 14])
     price = df_orderbook.ask_price[no]
     return price
-
-def auto_sell(upbit, coin_name, sell_interval, df):
-    #coin_name = sell_coin_list[0]
-    #coin_name = 'KRW-CBK'
-    balance = float(df.balance[0])
-    avg_price = float(df.avg_buy_price[0])
+def my_coin_check(upbit, coin_name):
+    my = f_my_coin(upbit)
+    check = False
+    if (coin_name in list(my.coin_name)):
+        my_df = my[my.coin_name == coin_name].reset_index(drop=True)
+        avg_price = my_df.avg_buy_price.astype(float)[0]
+        balance = my_df.balance.astype(float)[0]
+        price = get_currency_price(coin_name)
+        if (price < avg_price):
+            if (balance * avg_price < 1000000):
+                check = True
+            else:
+                check = False
+    return check
+def get_currency_price(coin_name):
     cur_price = []
     while len(cur_price) == 0:
         cur_price = [pyupbit.get_current_price(coin_name)]
         time.sleep(0.1)
     cur_price = cur_price[0]
+    return cur_price
+
+def auto_sell(upbit, coin_name, cur_price, df, max_benefit, min_benefit, cut_off):
+    #coin_name = sell_coin_list[0]
+    #coin_name = 'KRW-CBK'
+    balance = float(df.balance[0])
+    avg_price = float(df.avg_buy_price[0])
     ratio = round((cur_price - avg_price) / avg_price, 3)
-    df, weight = f_weight_balance(coin_name)
-    df = pd.DataFrame(generate_rate_minute(coin_name, sell_interval), index=[0])
-    min_benefit = max(df.benefit[0] * (1-df.position[0]), 0.002)
+
     price = cur_price
-    if (balance * price) < 10000:
-        balance = balance
-    else:
-        balance = balance * weight
 
     res = {'uuid': ''}
     type = "판매없음"
-    criteria1 = (ratio >= min_benefit) & ((df.coef_oscillator[0] <= 0) | (df.sell_check[0]))
-    criteria2 = (ratio >= min_benefit) & ((df.coef_oscillator[0] >= 0) | (not df.sell_check[0]))
-    criteria3 = (ratio <= -0.02) & ((df.coef_oscillator[0] <= 0) | (df.sell_check[0]))
-    criteria4 = (ratio >= 0.05)
-    criteria5 = (-0.02 < ratio < 0) & (df.updown_rate[0] > 0)
+    interval = "minute3"
+    df = pd.DataFrame(generate_rate_minute(coin_name, interval), index=[0])
+    cut_off = - abs(cut_off)
+    criteria1 = (ratio >= min_benefit) & (not df.sell_check[0])
+    criteria2 = (ratio >= min_benefit) & (df.sell_check[0])
+    criteria3 = (ratio <= cut_off)
+    criteria4 = (ratio >= max_benefit) & (not df.sell_check[0])
+    criteria5 = (ratio >= max_benefit) & (df.sell_check[0])
+    criteria6 = (cut_off < ratio < 0) & (df.updown_check[0]) & (df.coef_oscillator[0] > 0) & (not df.sell_check[0]) \
+                & (df.buy_check2[0] | df.buy_check3[0] | df.buy_check4[0] | df.buy_check5[0])
 
-    if criteria1:
+    if criteria4:
+        type = '익절(시장)'
+        upbit.sell_market_order(coin_name, balance)
+    elif criteria5:
+        type = '익절(호가)'
+        res = execute_sell(upbit, balance, coin_name, price)
+    elif criteria1:
         type = '판매1'
         res = execute_sell(upbit, balance, coin_name, price)
     elif criteria2:
         type = '판매2'
-        price = coin_sell_price(coin_name)
         res = execute_sell(upbit, balance, coin_name, price)
+    elif criteria6:
+        investment = avg_price * balance / 5
+        count = investment / price
+        if my_coin_check(upbit, coin_name):
+            type = '구매초과'
+            print(str(datetime.now()) + "    ("+type+") 코인: " + coin_name + "    min_benefit: "+str(min_benefit))
+        else:
+            type = '추매'
+            price = coin_buy_price(coin_name)
+            res = excute_buy(upbit, coin_name, price, count)
     elif criteria3:
         type = '손절'
         upbit.sell_market_order(coin_name, balance)
-    elif criteria4:
-        type = '익절'
-        upbit.sell_market_order(coin_name, balance)
-    elif criteria5:
-        type = '추매'
-        investment = avg_price * balance / 3
-        count = investment / price
-        res = excute_buy(upbit, coin_name, price, count)
 
-    print(str(datetime.now()) + "    ("+type+") 코인: " + coin_name + "    min_benefit: "+str(min_benefit))
+    if type != "판매없음":
+        print(str(datetime.now()) + "    ("+type+") 코인: " + coin_name + "    min_benefit: "+str(min_benefit))
+    else:
+        print(str(datetime.now()) + "    판매 대기: " + coin_name)
     return res
-def execute_sell_schedule(access_key, secret_key, sell_interval):
+def execute_sell_schedule(access_key, secret_key, max_benefit, min_benefit, cut_off):
     upbit = pyupbit.Upbit(access_key, secret_key)
     while True:
         my = []
@@ -681,7 +766,16 @@ def execute_sell_schedule(access_key, secret_key, sell_interval):
             #coin_name = tickers[0]
             try:
                 df = my[my.coin_name == coin_name].reset_index(drop=True)
-                res = auto_sell(upbit, coin_name, sell_interval, df)
+                cur_price = get_currency_price(coin_name)
+                if cur_price * float(df.balance[0]) >= 5000:
+                    res = auto_sell(upbit, coin_name, cur_price, df, max_benefit, min_benefit, cut_off)
+                else:
+                    pass
+                    upbit.buy_market_order(coin_name, 5000)
+                    time.sleep(0.1)
+                    my = f_my_coin(upbit)
+                    df = my[my.coin_name == coin_name].reset_index(drop=True)
+                    upbit.sell_market_order(coin_name, df.balance[0])
                 uuid = res.get('uuid')
                 if uuid != '':
                     reserv_list.append(uuid)
@@ -691,10 +785,10 @@ def execute_sell_schedule(access_key, secret_key, sell_interval):
         time.sleep(0.1)
         reservation_cancel(upbit, reserv_list)
 
-def coin_trade(access_key, secret_key, search_intervals, buy_interval, sell_interval, max_investment, sec):
-    th3 = Process(target=execute_search_schedule, args=(search_intervals,sec))
-    th1 = Process(target=execute_buy_schedule, args=(access_key, secret_key, buy_interval, max_investment))
-    th2 = Process(target=execute_sell_schedule, args=(access_key, secret_key, sell_interval))
+def coin_trade(access_key, secret_key, tickers, max_investment, max_benefit, min_benefit, cut_off, search_intervals, sec):
+    th3 = Process(target=execute_search_schedule, args=(search_intervals, sec))
+    th1 = Process(target=execute_buy_schedule, args=(access_key, secret_key, tickers, max_investment))
+    th2 = Process(target=execute_sell_schedule, args=(access_key, secret_key, max_benefit, min_benefit, cut_off))
     result = Queue()
     th1.start()
     th2.start()
@@ -709,8 +803,12 @@ if __name__ == '__main__':
     # access_key = 'nXlRFXhEdrt9yDmcMGzFxYxSXgTwWUlxcWtlfYhE'  # ''
     # secret_key = 'kV5OBdD43uI8wf3UCEx29Tgu1Yxl6ikxaR6NsN2P'  # ''
     max_investment = 500000
-    search_intervals = ["minute30"]
-    buy_interval = ["minute10"]
-    sell_interval = ["minute3"]
-    sec = 60 * 10 # 후보 리셋 시간
-    coin_trade(access_key, secret_key, search_intervals, buy_interval, sell_interval, max_investment, sec)
+    sell_interval = ["minute10"]
+    tickers = []
+    #tickers = pyupbit.get_tickers(fiat="KRW")
+    min_benefit = 0.002
+    max_benefit = 0.1
+    cut_off = 0.03
+    search_intervals = ["minute120"]
+    sec = 60
+    coin_trade(access_key, secret_key, tickers, max_investment, max_benefit, min_benefit, cut_off, search_intervals, sec)
