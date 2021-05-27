@@ -818,6 +818,26 @@ def coin_sell_price(coin_name):
     price = df_orderbook.ask_price[no]
     return price
 
+def get_coin_hoga(coin_name):
+    #coin_name='KRW-SBD'
+    orderbook = []
+    while len(orderbook) == 0:
+        orderbook = pyupbit.get_orderbook(coin_name)
+    df_orderbook = pd.DataFrame(orderbook[0]['orderbook_units'])
+    sell_position = np.where(df_orderbook.ask_size >= np.mean(df_orderbook.ask_size)*2.5)
+    buy_position = np.where(df_orderbook.bid_size >= np.mean(df_orderbook.bid_size)*2.5)
+    try:
+        sell_no = (np.min(sell_position)-1)
+    except:
+        sell_no = 14
+    try:
+        buy_no = (np.min(buy_position)-1)
+    except:
+        buy_no = 14
+    sell_price = df_orderbook.ask_price[sell_no]
+    buy_price = df_orderbook.bid_price[buy_no]
+    return sell_price, buy_price
+
 
 # 호가를 이용
 def get_hoga_price(coin_name, price, type):
@@ -909,10 +929,10 @@ def buy_coin(upbit, coin_name, ask_price, last_investment):
     return ask_list
 
 
-def bid_coin(upbit, coin_name, buy_interval, buy_point, my_balances, cutoff, benefit, investment):
+def bid_coin(upbit, coin_name, buy_interval, my_balances, cutoff, benefit, investment):
     # coin_name = 'KRW-SBD'
     res = search_coin(coin_name, buy_interval)
-    max = res.get('max_value')
+    max = res.get('max')
     df = my_balances[my_balances.coin_name == coin_name]
     df.reset_index(drop=True, inplace=True)
     avg_price = pd.to_numeric(df.avg_buy_price)[0]
@@ -923,19 +943,19 @@ def bid_coin(upbit, coin_name, buy_interval, buy_point, my_balances, cutoff, ben
     balance = float(df.balance[0])
     bid_list = []
     if avg_price * balance < 50000:
-        benefit = 0.05
+        benefit = 0.035
         cutoff = 0.03
     elif avg_price * balance < 100000:
-        benefit = 0.04
+        benefit = 0.03
         cutoff = 0.025
     elif avg_price * balance < 150000:
-        benefit = 0.03
+        benefit = 0.025
         cutoff = 0.02
     elif avg_price * balance < 200000:
         benefit = 0.02
         cutoff = 0.015
     elif avg_price * balance >= 200000:
-        benefit = 0.01
+        benefit = 0.015
         cutoff = 0.01
 
     type2 = "없음"
@@ -952,15 +972,17 @@ def bid_coin(upbit, coin_name, buy_interval, buy_point, my_balances, cutoff, ben
                 df.buy_point > df.sell_point) & (df.coef_oscillator > 0) & (df.rsi < 70)
         df = df[criteria]
         if len(df)>0:
-            ask_price = round_price(res.get('min_value'))
-            last_investment = round(investment * np.max([res.get('buy_point'), 1]), -3)
-            ask_result = buy_coin(upbit, coin_name, ask_price, last_investment)
-        if len(ask_result) == 0:
-            pass
-        else:
-            bid_list.append(ask_result)
+            try:
+                ask_price = round_price(res.get('min_value'))
+                last_investment = round(investment * np.max([res.get('buy_point'), 1]), -3)
+                ask_result = buy_coin(upbit, coin_name, ask_price, last_investment)
+                if len(ask_result) == 0:
+                    pass
+                else:
+                    bid_list.append(ask_result)
+            except:
+                print("추가매수 error")
             # print("구매 탐색중입니다.")
-
     elif (ratio < (-abs(cutoff))):  # | power_sell: # 손절
         type2 = "손절"
         try:
@@ -1124,25 +1146,60 @@ def round_price(price):
         price = round(price / 1000, 0) * 1000
     return price
 
+def total_money(upbit, bid_list, benefit):
+    reservation_cancel(upbit, bid_list)
+    df = pd.DataFrame(upbit.get_balances())
+    time.sleep(0.1)
+    df.reset_index(drop=True, inplace=True)
+    df['coin_name'] = df.unit_currency + '-' + df.currency
+    df['buy_price'] = (pd.to_numeric(df.locked, errors='coerce') + pd.to_numeric(df.balance,
+                                                                                 errors='coerce')) * pd.to_numeric(
+        df.avg_buy_price, errors='coerce')
+    df = df[df.buy_price > 0]
+    df.reset_index(drop=True, inplace=True)
+    my_balances = df
+    tickers = (my_balances.coin_name).to_list()
+    money = float(pd.DataFrame(upbit.get_balances())['balance'][0])
+    tot = money + np.sum(df.buy_price)
+    res = []
+    for coin_name in tickers:
+        # coin_name = tickers[0]
+        price_currency = get_currency(coin_name)
+        res.append(price_currency)
+    my_balances = pd.concat([my_balances, pd.DataFrame(res,columns=['cur'])],axis=1)
+    my_balances["currency_buy_price"] = my_balances.balance.astype(float) * my_balances.cur.astype(float)
+    my_balances["diff_price"] = my_balances.currency_buy_price.astype(float) - my_balances.buy_price.astype(float)
+    diff_price = np.sum(my_balances.diff_price)
+    ratio = diff_price/tot
+    if ratio > benefit:
+        balance = float(my_balances[my_balances.coin_name == coin_name].reset_index(drop=True).balance[0])
+        upbit.sell_market_order(coin_name, balance)
+    return ratio, tot, diff_price
 
 def execute_sell_schedule(access_key, secret_key, buy_interval, buy_point, cutoff, benefit, investment, sec):
     upbit = pyupbit.Upbit(access_key, secret_key)
+    ratio, tot, diff_price = total_money(upbit, bid_list, benefit)
     while True:
         my_balances = []
         while len(my_balances) == 0:
             my_balances = f_my_coin(upbit)
             time.sleep(0.1)
-        tickers = (my_balances.coin_name).to_list()
         res = []
         bid_list = []
+        tickers = (my_balances.coin_name).to_list()
         print("판매 코인: " + str(tickers))
+        ratio, tot, diff_price = total_money(upbit, bid_list, benefit)
+        print("현재 수익률: " + str(round(ratio * 100, 2)) + "% (" + str(round(diff_price, 2)) + "원)")
+
+        time.sleep(0.1)
         for coin_name in tickers:
-            try:
+             # try:
                 # coin_name = tickers[0]
                 # check = check_sell_combo(coin_name)
 
                 bid_result = []
-                bid_result = bid_coin(upbit, coin_name, buy_interval, buy_point,  my_balances, cutoff, benefit, investment)
+                investment = investment/2
+                bid_result = bid_coin(upbit, coin_name, buy_interval,  my_balances, cutoff, benefit, investment)
 
                 if len(bid_result) == 0:
                     pass
@@ -1151,8 +1208,8 @@ def execute_sell_schedule(access_key, secret_key, buy_interval, buy_point, cutof
                 # except:
                 #     print('매도 error: ' + coin_name)
                 time.sleep(0.5)
-            except:
-                pass
+            # except:
+            #     pass
         time.sleep(sec)
         reservation_cancel(upbit, bid_list)
 
@@ -1206,7 +1263,7 @@ def execute_buy_schedule(access_key, secret_key, buy_interval, buy_point, invest
                 tickers = pyupbit.get_tickers(fiat="KRW")
             ask_list = []
             for coin_name in tickers:
-                #coin_name = tickers[0]
+                #coin_name = tickers[3]
                 try:
                     res = search_coin(coin_name, buy_interval)
                         # b = res.get('buy_point') >= 2
@@ -1219,9 +1276,45 @@ def execute_buy_schedule(access_key, secret_key, buy_interval, buy_point, invest
                     criteria = (df.buy_point >= 1) & (df.up_levels >= 1) & (df.down_levels >= 1) & (
                                 df.up_levels >= df.down_levels) & (
                                        df.buy_point > df.sell_point) & (df.coef_oscillator > 0) & (df.rsi < 70)
-                    df = df[criteria]
-                    if len(df)>0:
-                        ask_result = buy_coin(upbit, coin_name, ask_price, last_investment)
+                    df = df[criteria].reset_index(drop=True)
+                    if (len(df)>0):
+                        if ((df.influence[0]==0) & (df.over_volume[0]==0)):
+                            print("**********일반매매: "+ coin_name)
+                            last_investment = last_investment * (1+df.over_volume[0]+df.influence[0])
+                            ask_result = buy_coin(upbit, coin_name, ask_price, last_investment)
+                        # elif ((df.influence[0]>=1)| (df.over_volume[0]>=1)):
+                        #     print("**********집중매매: "+ coin_name)
+                        #     exe = True
+                        #     temp_list=[]
+                        #     while exe==True:
+                        #         res = search_coin(coin_name, buy_interval)
+                        #         print(res)
+                        #         print("집중매매: "+ coin_name)
+                        #         try:
+                        #             sell_price, buy_price  = get_coin_hoga(coin_name)
+                        #             count = investment/buy_price
+                        #             result = upbit.buy_limit_order(coin_name, buy_price, count)
+                        #             print(result)
+                        #             time.sleep(0.1)
+                        #             if len(result) > 2:
+                        #                 uuid = result.get('uuid')
+                        #                 temp_list.append(uuid)
+                        #             else:
+                        #                 pass
+                        #                     # print("service error")
+                        #             my = f_my_coin(upbit)
+                        #             if len(my[my.coin_name == coin_name])>=1:
+                        #                 balance = float(my[my.coin_name == coin_name].reset_index(drop=True).balance[0])
+                        #                 result = upbit.sell_limit_order(coin_name, sell_price, count)
+                        #                 print(result)
+                        #                 time.sleep(0.1)
+                        #                 if len(result) > 2:
+                        #                     uuid = result.get('uuid')
+                        #                     temp_list.append(uuid)
+                        #                     # print("service error")
+                        #         except:
+                        #             reservation_cancel(upbit, temp_list)
+                        #             exe==False
                     if len(ask_result) == 0:
                         pass
                     else:
