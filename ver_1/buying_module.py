@@ -148,7 +148,7 @@ def check_buy_case(df):
             df.chart_name[idx - 2] == 'longbody_yangbong') & bool(
         df.chart_name[idx - 1] == 'shortbody_yangbong'):
         result = True
-    elif bool(status == 'down') & bool(np.sum(df.color == 'blue') >= 4) & bool(
+    elif bool(status == 'down') & bool(np.sum(df.color == 'blue') >= 3) & bool(
             df.chart_name[idx - 2] == 'shooting_star') & bool(df.chart_name[idx - 1] == 'longbody_yangbong'):
         result = True
     elif bool(status == 'down') & bool(df.chart_name[idx - 2] == 'shooting_star') & bool(
@@ -157,16 +157,16 @@ def check_buy_case(df):
     elif bool(status == 'down') & bool(df.chart_name[idx - 2] == 'longbody_umbong') & bool(
             df.chart_name[idx - 1] in ['longbody_yangbong', 'shortbody_yangbong']):
         result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(
+    elif bool(np.sum(df.color == 'blue') >= 3) & bool(
             df.chart_name[idx - 1] in ['stone_cross', 'lower_tail_pole_umbong']):
         result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(
+    elif bool(np.sum(df.color == 'blue') >= 3) & bool(
             df.chart_name[idx - 1] in ['dragonfly_cross', 'upper_tail_pole_yangong']):
         result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(np.sum(df.chart_name == 'pole_umbong') >= 2) & bool(
+    elif bool(np.sum(df.color == 'blue') >= 3) & bool(np.sum(df.chart_name == 'pole_umbong') >= 2) & bool(
             df.chart_name[idx - 1] in ['shooting_star', 'upper_tail_pole_umbong']):
         result = True
-    elif bool(np.sum(df.color == 'blue') >= 4) & bool(df.chart_name[idx - 1] in ['doji_cross', 'spinning_tops']):
+    elif bool(np.sum(df.color == 'blue') >= 3) & bool(df.chart_name[idx - 1] in ['doji_cross', 'spinning_tops']):
         result = True
     elif bool(status == 'down') & bool(np.sum(df.chart_name == 'longbody_umbong') >= 2) & bool(
             np.sum(df.chart_name == 'longbody_yangbong') >= 1) & bool(df.chart_name[idx - 1] in ['longbody_umbong']):
@@ -186,59 +186,53 @@ def check_sell_case(df):
     updown = criteria_updown(df)
     updown = pd.DataFrame(updown)
     result = False
-    if bool(np.sum(updown.volume_status == 'down') >= 3) & bool(np.sum(updown.volume_status == 'down') >= 3):
-        status = 'down'
-    elif bool(np.sum(updown.volume_status == 'up') >= 3) & bool(np.sum(updown.volume_status == 'up') >= 3):
-        status = 'up'
-    else:
-        status = 'normal'
     ####################################################
     #### 하락 반전형 캔들
     ## 유성형
-    if bool(status == 'up') & bool(df.chart_name[idx - 1] == 'upper_tail_pole_yangong') & bool(
+    if bool(df.chart_name[idx - 1] == 'upper_tail_pole_yangong') & bool(
             df.color[idx - 1] == 'blue'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 1] == 'lower_tail_pole_yangbong') & bool(
+    elif bool(df.chart_name[idx - 1] == 'lower_tail_pole_yangbong') & bool(
             df.color[idx - 1] == 'red'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 1] == 'lower_tail_pole_umbong') & bool(
+    elif bool(df.chart_name[idx - 1] == 'lower_tail_pole_umbong') & bool(
             df.color[idx - 1] == 'red'):
         result = True
-    elif bool(status == 'up') & (bool(df.chart_name[idx - 2] in ['doji_cross', 'rickshawen_doji']) | bool(
+    elif (bool(df.chart_name[idx - 2] in ['doji_cross', 'rickshawen_doji']) | bool(
             df.chart_name[idx - 1] in ['doji_cross', 'rickshawen_doji'])):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 2] == 'shortbody_yangbong') & bool(
+    elif bool(df.chart_name[idx - 2] == 'shortbody_yangbong') & bool(
             df.chart_name[idx - 1] == 'longbody_yangbong'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 3] == 'upper_tail_pole_umbong') & bool(
+    elif bool(df.chart_name[idx - 3] == 'upper_tail_pole_umbong') & bool(
             df.chart_name[idx - 2] == 'longbody_umbong') & bool(df.chart_name[idx - 1] == 'lower_tail_pole_umbong'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 2] == 'longbody_yangbong') & bool(
+    elif bool(df.chart_name[idx - 2] == 'longbody_yangbong') & bool(
             df.chart_name[idx - 1] == 'doji_corss'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 2] == 'longbody_yangbong') & bool(
+    elif bool(df.chart_name[idx - 2] == 'longbody_yangbong') & bool(
             df.chart_name[idx - 1] == 'upper_tail_pole_umbong'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 3] == 'longbody_yangbong') & bool(
+    elif bool(df.chart_name[idx - 3] == 'longbody_yangbong') & bool(
             df.chart_name[idx - 2] == 'longbody_umbong') & bool(df.chart_name[idx - 1] == 'shortbody_umbong'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 3] == 'longbody_yangbong') & bool(
+    elif bool(df.chart_name[idx - 3] == 'longbody_yangbong') & bool(
             df.chart_name[idx - 2] == 'shortbody_umbong') & bool(df.chart_name[idx - 1] == 'longbody_umbong'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 2] == 'longbody_yangbong') & bool(
+    elif bool(df.chart_name[idx - 2] == 'longbody_yangbong') & bool(
             df.chart_name[idx - 1] == 'longbody_umbong'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 2] == 'longbody_yangbong') & bool(
+    elif bool(df.chart_name[idx - 2] == 'longbody_yangbong') & bool(
             df.chart_name[idx - 1] == 'longbody_umbong'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 3] == 'longbody_yangbong') & bool(
+    elif bool(df.chart_name[idx - 3] == 'longbody_yangbong') & bool(
             df.chart_name[idx - 2] == 'shortbody_yangbong') & bool(df.chart_name[idx - 1] == 'longbody_umbong'):
         result = True
     #########################################
-    elif bool(status == 'up') & bool(df.chart_name[idx - 3] == 'longbody_yangbong') & bool(
+    elif bool(df.chart_name[idx - 3] == 'longbody_yangbong') & bool(
             df.chart_name[idx - 2] == 'doji_corss') & bool(df.chart_name[idx - 1] == 'longbody_pole_umbong'):
         result = True
-    elif bool(status == 'up') & bool(df.chart_name[idx - 3] == 'shortbody_yangbong') & bool(
+    elif bool(df.chart_name[idx - 3] == 'shortbody_yangbong') & bool(
             df.chart_name[idx - 2] == 'doji_corss') & bool(df.chart_name[idx - 1] == 'shortbody_umbong'):
         result = True
     elif bool(np.sum(df.color == 'red') >= 3) & bool(
@@ -294,10 +288,16 @@ def box_vervus(default_res):
     avg_volume = np.mean(default_df.volume)
     avg_close = np.mean(default_df.close)
     std_close = np.std(default_df.close)
+    buy_price = [
+    np.mean(default_df.low) + 2 * np.std(default_df.low)
+    ,np.mean(default_df.low) + np.std(default_df.low)
+    ,np.mean(default_df.close) - np.std(default_df.close)
+    ,np.mean(default_df.close) - 2 * np.std(default_df.close)
+    ]
     # 구매 단가 - 박스권 내 구매 가격
-    min_value = avg_close - 1.7 * std_close
+    min_value = avg_close - 2 * std_close
     # 판매 단가 - 박스권 내 구매 가격
-    max_value = avg_close + 1.1 * std_close
+    max_value = avg_close + 1.2 * std_close
     # 저항선 돌파 = 상승장
     up_levels = np.sum(default_df.high > avg_close + 2 * std_close)
     # 지지선 파괴 = 하락장
@@ -316,6 +316,7 @@ def box_vervus(default_res):
     result['up_levels'] = up_levels
     result['down_levels'] = down_levels
     result['over_volume'] = over_volume
+    result['buy_price'] = buy_price
     return result
 
 
@@ -618,7 +619,7 @@ def check_buy_case2(bdf, min, max):
     # 3분봉 분석
     criteria0_1 = (temp1.color[
                        0] == 'red')  # & (temp2.color[0] == 'red') & (temp3.color[0] == 'blue') & (temp4.color[0] == 'blue') & (temp5.color[0] == 'blue')
-    criteria0_2 = (temp2.rate_volume[0] > 3) & (temp2.rate_volume[0] > 3)
+    criteria0_2 = (temp2.rate_volume[0] < temp1.rate_volume[0]) & (temp3.rate_volume[0] < temp2.rate_volume[0])
     criteria0 = criteria0_1 & criteria0_2
 
     # case1 : 지속적 하락 & 값에 큰 변화 없음
@@ -681,7 +682,7 @@ def check_buy_case2(bdf, min, max):
 
 def search_coin(coin_name, interval):
     # coin_name = 'KRW-ETH'
-    # interval = 'minute1'
+    # interval = 'minute3'
     buy_point = 0
     sell_point = 0
     df = []
@@ -700,27 +701,31 @@ def search_coin(coin_name, interval):
                 + np.sum(np.sum([(coef_macd > 0), (coef_signal > 0), (coef_oscillator > 0)]) >= 2) \
                 + np.sum(oscillator < min_oscillator) \
                 + np.sum(validation.get('check_buy_2')) \
-                + np.sum(validation.get('check_buy'))\
-                + np.sum(validation.get("up_levels") > validation.get("down_levels"))
+                + np.sum(validation.get('check_buy'))
 
     sell_point = np.sum(validation.get("up_levels") < validation.get("down_levels")) \
                  + np.sum(rsi >= 72) \
-                 + np.sum(np.sum([(coef_macd < 0), (coef_signal < 0), (coef_oscillator < 0)]) >= 3) \
-                 + np.sum(oscillator > max_oscillator) \
-                 + np.sum(validation.get("up_levels") < validation.get("down_levels"))
+                 + np.sum(np.sum([(coef_macd < 0), (coef_signal < 0), (coef_oscillator < 0)]) >= 2) \
+                 + np.sum(oscillator > max_oscillator) + np.sum(validation.get('check_sell'))
+    b1 = np.mean(df[-15:].low) + np.std(df[-15:].low)
+    b2 = np.mean(df[-15:].close) - 2*np.std(df[-15:].close)
+    b3 = np.mean(df[-10:].low) + np.std(df[-10:].low)
+    b4 = np.mean(df[-10:].close) - 2*np.std(df[-10:].close)
+    b5 = np.mean(df[-5:].low) + np.std(df[-5:].low)
+    b6 = np.mean(df[-5:].close) - 2*np.std(df[-5:].close)
+    b7 = np.mean(df[-3:].low) + np.std(df[-3:].low)
+    b8 = np.mean(df[-3:].close) - 2*np.std(df[-3:].close)
+    min_value = np.max([b1,b2,b3,b4,b5,b6,b7,b8, validation.get("min_value")])
 
-    min_vs = np.mean(df[-20:].close) - np.std(df[-20:].close)
-    if validation.get("min_value") > min_vs:
-        # min_value = np.mean([validation.get("min_value"), np.min(df[-20:].close)])
-        min_value = validation.get("min_value")
-    else:
-        min_value = min_vs
-
-    max_vs = np.mean(df[-20:].close) + np.std(df[-20:].close)
-    if validation.get("max_value") <= max_vs:
-        max_value = validation.get("max_value")
-    else:
-        max_value = max_vs
+    b1 = np.mean(df[-15:].high) + np.std(df[-15:].high)
+    b2 = np.mean(df[-15:].close) + 2 * np.std(df[-15:].close)
+    b3 = np.mean(df[-10:].high) + np.std(df[-10:].high)
+    b4 = np.mean(df[-10:].close) + 2 * np.std(df[-10:].close)
+    b5 = np.mean(df[-5:].high) + np.std(df[-5:].high)
+    b6 = np.mean(df[-5:].close) + 2 * np.std(df[-5:].close)
+    b7 = np.mean(df[-3:].high) + np.std(df[-3:].high)
+    b8 = np.mean(df[-3:].close) + 2 * np.std(df[-3:].close)
+    max_value = np.min([b1, b2, b3, b4, b5, b6, b7, b8, validation.get("max_value")])
 
     result = {'coin_name': coin_name, 'buy_point': buy_point, 'sell_point': sell_point,
               'influence':validation.get('influence_v'), 'over_volume':validation.get('over_volume'),
@@ -851,7 +856,6 @@ def get_hoga_price(coin_name, price, type):
     power_sell = np.sum(df_orderbook.ask_size) * 3 <= np.sum(df_orderbook.bid_size)
     if type == 'buy':  # 구매가
         bid_price = df_orderbook.bid_price
-        price = 80
         idx = np.where(bid_price < price)
         try:
             no = np.min(idx)
@@ -929,7 +933,7 @@ def buy_coin(upbit, coin_name, ask_price, last_investment):
     return ask_list
 
 
-def bid_coin(upbit, coin_name, buy_interval, my_balances, cutoff, benefit, investment):
+def bid_coin(upbit, coin_name, buy_interval, my_balances, cutoff, buy_point, benefit, investment):
     # coin_name = 'KRW-SBD'
     res = search_coin(coin_name, buy_interval)
     max = res.get('max')
@@ -942,25 +946,9 @@ def bid_coin(upbit, coin_name, buy_interval, my_balances, cutoff, benefit, inves
     ratio = (current_price - avg_price) / avg_price
     balance = float(df.balance[0])
     bid_list = []
-    if avg_price * balance < 50000:
-        benefit = 0.035
-        cutoff = 0.03
-    elif avg_price * balance < 100000:
-        benefit = 0.03
-        cutoff = 0.025
-    elif avg_price * balance < 150000:
-        benefit = 0.025
-        cutoff = 0.02
-    elif avg_price * balance < 200000:
-        benefit = 0.02
-        cutoff = 0.015
-    elif avg_price * balance >= 200000:
-        benefit = 0.015
-        cutoff = 0.01
-
     type2 = "없음"
     print('sell_point: ' + str(res.get('sell_point')) + '    ratio: ' + str(ratio))
-    if (0 > ratio > (-abs(cutoff))) & (res.get('buy_point') >= 3) & (res.get('sell_point')==0):
+    if (0 > ratio > (-abs(cutoff))) & (res.get('buy_point') >= buy_point) & (res.get('sell_point')==0):
         type2 = "추가매수"
         interval = buy_interval
         res = search_coin(coin_name, interval)
@@ -968,9 +956,8 @@ def bid_coin(upbit, coin_name, buy_interval, my_balances, cutoff, benefit, inves
         # b = res.get('buy_point') >= 2
         # coin_name ='KRW-MVL'
         df = pd.DataFrame(res, index=[0])
-        criteria = (df.buy_point >= 1) & (df.up_levels >= 1) & (df.down_levels >= 1) & (df.up_levels >=df.down_levels) & (
-                df.buy_point > df.sell_point) & (df.coef_oscillator > 0) & (df.rsi < 70)
-        df = df[criteria]
+        # criteria = (df.buy_point >= 1) & (df.up_levels >= 1) & (df.down_levels >= 1) & (df.up_levels >= df.down_levels) & (df.buy_point > df.sell_point) & (df.coef_oscillator > 0) & (df.rsi < 70)
+        # df = df[criteria]
         if len(df)>0:
             try:
                 ask_price = round_price(res.get('min_value'))
@@ -996,31 +983,22 @@ def bid_coin(upbit, coin_name, buy_interval, my_balances, cutoff, benefit, inves
                 # print("service error")
         except:
             print("service error : 손절 시도")
-    elif (ratio > benefit) & (balance * avg_price >= 5500) & (res.get('sell_point') >= 1):
-        type2 = "분할매도"
-        balance_n = balance
+    elif (ratio > benefit) & (balance * avg_price >= 5500):
+        type2 = "익절매도"
         print("코인 매도 요청: " + coin_name)
-        hoga_price = [hoga_price, round_price(max)]
-        for price in hoga_price:
-            try:
-                balance_n = balance * 0.8
-                if balance_n * price < 5500:
-                    balance_n = balance
-                balance = balance - balance_n
-                result = upbit.sell_limit_order(coin_name, price, balance_n)
-                print(result)
-                print(balance_n * price)
-                if len(result) > 2:
-                    uuid = result.get('uuid')
-                    bid_list.append(uuid)
-            except:
-                print("매도 error")
-    elif (ratio > 0.02) & (balance * avg_price < 5500):
+        try:
+            result = upbit.sell_limit_order(coin_name, hoga_price, balance)
+            print(result)
+            print(balance * hoga_price)
+            if len(result) > 2:
+                uuid = result.get('uuid')
+                bid_list.append(uuid)
+        except:
+            print("매도 error")
+    elif (balance * avg_price < 5500):
         type2 = "2만원 미만 처분"
         try:
             upbit.buy_market_order(coin_name, 6000)
-            time.sleep(0.5)
-            upbit.sell_market_order(coin_name, balance)
         except:
             print("매도 error")
     print(str(datetime.now()) + "coin_name: " + coin_name + "    매도유형:" + str(type2) + "    ratio: " + str(ratio))
@@ -1096,7 +1074,7 @@ def get_coin_selection(access_key, secret_key, search_interval):
             time.sleep(0.1)
         df = pd.DataFrame(my_balances).sort_values('buy_point', ascending=False)
         rate = [np.sum(pd.DataFrame(my_balances).buy_point > 1) / len(pd.DataFrame(my_balances).buy_point)]
-        criteria = (df.buy_point >= 1) & (df.up_levels>=1) & (df.down_levels>=1) & (df.buy_point > df.sell_point) & (df.coef_oscillator > 0) & (df.rsi < 70)
+        criteria = (df.buy_point >= 1) & (df.up_levels>=1) & (df.down_levels>=1) & (df.buy_point > df.sell_point)
         df = df[criteria].reset_index(drop=True)
         print('***************후보 산출 정보***************')
         print(df)
@@ -1178,6 +1156,7 @@ def total_money(upbit, bid_list, benefit):
 
 def execute_sell_schedule(access_key, secret_key, buy_interval, buy_point, cutoff, benefit, investment, sec):
     upbit = pyupbit.Upbit(access_key, secret_key)
+    bid_list = []
     ratio, tot, diff_price = total_money(upbit, bid_list, benefit)
     while True:
         my_balances = []
@@ -1199,7 +1178,7 @@ def execute_sell_schedule(access_key, secret_key, buy_interval, buy_point, cutof
 
                 bid_result = []
                 investment = investment/2
-                bid_result = bid_coin(upbit, coin_name, buy_interval,  my_balances, cutoff, benefit, investment)
+                bid_result = bid_coin(upbit, coin_name, buy_interval,  my_balances, cutoff, buy_point, benefit, investment)
 
                 if len(bid_result) == 0:
                     pass
@@ -1264,6 +1243,7 @@ def execute_buy_schedule(access_key, secret_key, buy_interval, buy_point, invest
             ask_list = []
             for coin_name in tickers:
                 #coin_name = tickers[3]
+                #coin_name = 'KRW-ETC'
                 try:
                     res = search_coin(coin_name, buy_interval)
                         # b = res.get('buy_point') >= 2
@@ -1273,15 +1253,14 @@ def execute_buy_schedule(access_key, secret_key, buy_interval, buy_point, invest
                     last_investment = round(investment * np.max([res.get('buy_point'), 1]), -3)
                     print("last_investment: " + str(last_investment) + "   ask_price: " + str(ask_price))
                     df = pd.DataFrame(res, index=[0])
-                    criteria = (df.buy_point >= 1) & (df.up_levels >= 1) & (df.down_levels >= 1) & (
-                                df.up_levels >= df.down_levels) & (
-                                       df.buy_point > df.sell_point) & (df.coef_oscillator > 0) & (df.rsi < 70)
-                    df = df[criteria].reset_index(drop=True)
+                    # criteria = (df.buy_point >= 1) & (df.up_levels >= 1) & (df.down_levels >= 1) & (
+                    #             df.up_levels >= df.down_levels) & (
+                    #                    df.buy_point > df.sell_point) & (df.coef_oscillator > 0) & (df.rsi < 70)
+                    # df = df[criteria].reset_index(drop=True)
                     if (len(df)>0):
-                        if ((df.influence[0]==0) & (df.over_volume[0]==0)):
-                            print("**********일반매매: "+ coin_name)
-                            last_investment = last_investment * (1+df.over_volume[0]+df.influence[0])
-                            ask_result = buy_coin(upbit, coin_name, ask_price, last_investment)
+                        print("**********일반매매: "+ coin_name)
+                        last_investment = last_investment * (1+df.over_volume[0]+df.influence[0])
+                        ask_result = buy_coin(upbit, coin_name, ask_price, last_investment)
                         # elif ((df.influence[0]>=1)| (df.over_volume[0]>=1)):
                         #     print("**********집중매매: "+ coin_name)
                         #     exe = True
