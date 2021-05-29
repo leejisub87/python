@@ -19,12 +19,13 @@ if __name__ == '__main__':
     ##################################
     access_key = '5RsZuqMZ6T0tfyjNbIsNlKQ8LI4IVwLaYMBXiaa2'  # ''
     secret_key = 'zPKA1zJwymHMvUSQ2SqYWDgkxNgVfG7Z5jiNLcaJ'  # ''
-    investment = 10000
-    buy_interval = 'minute10'
+    investment = 30000
+    buy_interval = 'minute3'
     buy_point = 2
-    search_interval = 'minute60'
+    search_interval = 'minute10'
+    #tickers = ['KRW-ETC']
     #tickers = [] # 예시 : tickers = ['KRW-BTC','KRW-ETC']
-    cutoff = 0.03 # 1% 손절
-    benefit = 0.008  # 1% 익절
+    cutoff = 0.02 # 1% 손절
+    benefit = 0.002  # 1% 익절
     sec = 10
     result = coin_trade(access_key, secret_key, buy_interval, buy_point, search_interval, investment, cutoff, benefit, sec)
